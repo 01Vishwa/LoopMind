@@ -1,0 +1,47 @@
+import React from 'react'
+import { UploadCloud, Trash2, FolderOpen } from 'lucide-react'
+import { DropZone } from './DropZone'
+import { FileList } from './FileList'
+
+export function FileUploadPanel({ files, onAddFiles, onRemoveFile, onClearAll }) {
+  return (
+    <div className="h-full flex flex-col gap-5 min-h-0">
+      {/* Header */}
+      <div>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-lg bg-brand-50 border border-brand-100 flex items-center justify-center shadow-sm">
+              <FolderOpen size={16} className="text-brand-600" />
+            </div>
+            <h2 className="font-bold text-slate-800 text-base">Document Ingestion</h2>
+          </div>
+          {files.length > 0 && (
+            <button
+              id="clear-all-files-btn"
+              onClick={onClearAll}
+              className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-rose-600 font-medium
+                         px-2.5 py-1.5 rounded-lg hover:bg-rose-50 border border-transparent hover:border-rose-100 transition-all duration-150"
+            >
+              <Trash2 size={12} />
+              Clear all
+            </button>
+          )}
+        </div>
+        <p className="text-xs text-slate-500 mt-1 ml-10">Supported: CSV, TXT, XLSX, PDF, JSON, Markdown</p>
+      </div>
+
+      {/* Drop Zone */}
+      <DropZone onFiles={onAddFiles} />
+
+      {/* File List */}
+      {files.length > 0 ? (
+        <FileList files={files} onRemove={onRemoveFile} />
+      ) : (
+        <div className="flex-1 flex flex-col items-center justify-center text-center py-8 opacity-60">
+          <UploadCloud size={32} className="text-slate-300 mb-2" />
+          <p className="text-xs text-slate-400 font-medium">No files uploaded yet</p>
+        </div>
+      )}
+    </div>
+  )
+}
