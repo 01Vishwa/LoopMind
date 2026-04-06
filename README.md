@@ -1,26 +1,50 @@
-# AutoGraph Project Guide
+# Semantica
 
-## How to Run
-1. Ensure you have Docker and Docker Compose installed.
-2. Set up your `.env` file:
-   ```bash
-   cp .env.example .env
-   # Edit .env with your OPENAI_API_KEY
-   ```
-3. Run the application:
-   ```bash
-   docker-compose up --build
-   ```
+Semantica is an **Intelligent Document Processing (IDP)** Platform powered by an iterative Data Science AI. At its core lives the **DS-STAR Agent Framework**, an AI loop that reads data, plans, codes, executes locally, and self-verifies.
 
-## Happy Path Test
-1. **Open Frontend**: Go to `http://localhost:8501`.
-2. **Upload**: Use the sidebar to upload `data/sales_data.csv`.
-3. **Analyze**: In the chat, ask "Show me sales over time".
-4. **Observe**: The agent should generate a chart (e.g., Line or Bar).
-5. **Feedback**: Click "👎 Bad" under the chart.
-6. **Retry**: Ask the same question again.
-7. **Verify**: The RL Engine should try a different chart type (exploration).
+![React](https://img.shields.io/badge/React-19-blue?logo=react)
+![FastAPI](https://img.shields.io/badge/FastAPI-latest-green?logo=fastapi)
+![Python](https://img.shields.io/badge/Python-3.10+-blue?logo=python)
 
-## Troubleshooting
-- If backend fails with "OPENAI_API_KEY", check your `.env` file.
-- If permission errors occur, ensure Docker has access to the drive.
+## 📖 Deep Dive Documentation
+Everything regarding the underlying framework logic and structure is documented in our new `docs/` folder:
+
+- 🏗️ **[System Architecture](docs/architecture.md)** — Explores the structural design, tech stack overview, and interaction between the Vite Frontend, FastAPI Backend, and Supabase persistent layers.
+- 🤖 **[DS-STAR Agent Framework](docs/agent_framework.md)** — Breakdown of the iterative workflow consisting of specialized LLMs: `FileAnalyzerAgent`, `PlannerAgent`, `CoderAgent`, `VerifierAgent`, `RouterAgent`.
+- 🔌 **[API Reference](docs/api.md)** — The definitions of the REST and the core SSE streaming endpoints.
+- 🎨 **[Frontend Architecture](docs/frontend.md)** — Breakdown of Vite, React Hook states, and UI components used.
+
+---
+
+## 🚀 Quick Start / Local Setup
+
+### 1. Requirements
+Ensure you have the following installed:
+- [Node.js (18+)](https://nodejs.org/)
+- [Python 3.10+](https://www.python.org/)
+
+### 2. Backend Setup
+Set up the python environment and run the backend endpoints:
+```bash
+cd backend
+python -m venv venv
+# Windows: venv\Scripts\activate.ps1  |  Mac/Linux: source venv/bin/activate
+pip install -r requirements.txt
+
+# Environment Setup
+cp .env.example .env
+# Edit your .env with your LLM Endpoints (like NIM) & Supabase credentials
+
+# Run Server
+python main.py
+```
+> Fast API will start serving at `http://localhost:8000`
+
+### 3. Frontend Setup
+Run the development environment in a new terminal prompt:
+```bash
+# From root directory
+npm install
+npm run dev
+```
+> The vite proxy will automatically link `/api` calls to the python port. Follow the output URL (`localhost:5173` typically) to launch the app UI.
