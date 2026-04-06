@@ -116,3 +116,75 @@
 .token-function { color: #8250df; }
 .token-operator { color: #0550ae; }
 .token-builtin  { color: #cf222e; }
+
+/* ── DS-STAR Agent UI tokens ─────────────────────────────────────────────── */
+
+/* Terminal / execution log window */
+.agent-terminal {
+  font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+  font-size: 11px;
+  line-height: 1.7;
+  background: #0d1117;
+  color: #c9d1d9;
+  border-radius: 12px;
+  padding: 14px 16px;
+  overflow-y: auto;
+  max-height: 220px;
+}
+.agent-terminal .log-info    { color: #58a6ff; }
+.agent-terminal .log-success { color: #3fb950; }
+.agent-terminal .log-warn    { color: #d29922; }
+.agent-terminal .log-error   { color: #f85149; }
+
+/* Animated pulse ring used on the active agent phase badge */
+@keyframes pulse-ring {
+  0%   { transform: scale(0.85); opacity: 0.9; }
+  70%  { transform: scale(1.15); opacity: 0.3; }
+  100% { transform: scale(0.85); opacity: 0; }
+}
+.pulse-ring::before {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: pulse-ring 1.4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  opacity: 0;
+}
+
+/* Plan step status indicators */
+.step-pending  { @apply bg-slate-100 text-slate-400 border border-slate-200; }
+.step-active   { @apply bg-brand-50 text-brand-600 border border-brand-200; }
+.step-done     { @apply bg-emerald-50 text-emerald-600 border border-emerald-200; }
+.step-fixed    { @apply bg-amber-50 text-amber-600 border border-amber-200; }
+.step-error    { @apply bg-red-50 text-red-500 border border-red-200; }
+
+/* Agent phase strip */
+.agent-phase {
+  @apply inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px]
+         font-semibold tracking-wide border;
+}
+.phase-analyzing  { @apply bg-violet-50 text-violet-700 border-violet-200; }
+.phase-planning   { @apply bg-blue-50   text-blue-700   border-blue-200; }
+.phase-coding     { @apply bg-cyan-50   text-cyan-700   border-cyan-200; }
+.phase-executing  { @apply bg-amber-50  text-amber-700  border-amber-200; }
+.phase-verifying  { @apply bg-emerald-50 text-emerald-700 border-emerald-200; }
+.phase-routing    { @apply bg-orange-50 text-orange-700 border-orange-200; }
+.phase-completed  { @apply bg-emerald-50 text-emerald-700 border-emerald-200; }
+.phase-error      { @apply bg-red-50    text-red-700    border-red-200; }
+
+/* Slide-up stagger for step list items */
+@keyframes step-enter {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.step-enter {
+  animation: step-enter 0.25s ease forwards;
+}
+
+/* Round counter badge */
+.round-badge {
+  @apply inline-flex items-center justify-center w-6 h-6 rounded-full
+         text-[10px] font-bold border;
+}
+

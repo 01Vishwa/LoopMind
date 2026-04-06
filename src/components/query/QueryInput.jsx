@@ -1,7 +1,7 @@
 import React, { useRef, useState, useEffect } from 'react'
 import { Send, Sparkles, Paperclip } from 'lucide-react'
 
-export function QueryInput({ onSubmit, isProcessing, fileCount }) {
+export function QueryInput({ onSubmit, isProcessing, fileCount, placeholder }) {
   const [query, setQuery] = useState('')
   const textareaRef = useRef(null)
 
@@ -46,7 +46,7 @@ export function QueryInput({ onSubmit, isProcessing, fileCount }) {
           onKeyDown={handleKeyDown}
           disabled={isProcessing}
           rows={3}
-          placeholder="Ask questions about your uploaded documents… (Ctrl+Enter to run)"
+          placeholder={placeholder || "Ask questions about your uploaded documents… (Ctrl+Enter to run)"}
           className="w-full resize-none bg-transparent px-5 pt-4 pb-14 text-sm font-medium text-slate-800 placeholder-slate-400 focus:outline-none disabled:opacity-60 leading-relaxed"
         />
         <div className="absolute bottom-3 left-4 right-4 flex items-center justify-between">

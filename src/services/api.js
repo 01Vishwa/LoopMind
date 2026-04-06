@@ -71,27 +71,6 @@ export async function processFiles(filenames) {
 }
 
 /**
- * Sends a natural language query to /api/query.
- *
- * @param {string} query - The user's query string.
- * @returns {Promise<{ insights: { summary: string, bullets: string[] }, code: object }>}
- */
-export async function runQuery(query) {
-  const res = await fetch(`${BASE}/query`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ query }),
-  })
-
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ message: `HTTP ${res.status}` }))
-    throw new Error(err.message || `Query failed with status ${res.status}`)
-  }
-
-  return res.json()
-}
-
-/**
  * Sends a DELETE request to /api/clear to wipe the backend's in-memory byte cache
  * and processing contexts preventing memory leaks.
  */

@@ -49,6 +49,10 @@ export function useFileUpload() {
       if (acceptedNames.length > 0) {
         try {
           await processFiles(acceptedNames)
+          toast(
+            `${acceptedNames.length} file${acceptedNames.length > 1 ? 's' : ''} uploaded successfully`,
+            'success'
+          )
         } catch (err) {
           toast(`Processing error: ${err.message}`, 'error')
         }
