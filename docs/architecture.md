@@ -1,29 +1,46 @@
 # System Architecture
 
-Semantica is designed around a modular, modern stack consisting of a React + Vite frontend and a FastAPI (Python) backend. The platform provides an intelligent document processing pipeline driven by a complex AI agent loop.
+LoopMind is developed utilizing a scalable, modern architecture combining a reactive User Interface with a highly async-focused Python backend, aimed at processing complex inference loops securely.
 
-## High-Level Overview
+## High-Level System Design
 
-### 1. Frontend (Vite + React)
-The frontend is a single-page application (SPA) built with React 19.
-- **Styling**: Tailwind CSS and simple CSS files.
-- **Routing/State**: Component-level state with custom hooks (e.g., `useAgentRun`).
-- **Communication**: Uses standard `fetch` API for REST operations (upload, process) and Server-Sent Events (SSE) for streaming real-time agent output.
+The application is structured into three primary tiers:
 
-### 2. Backend (FastAPI)
-The central intelligence of the platform lives in a FastAPI application (`backend/main.py`).
-- **Core Orchestrator**: Manages AI workflows asynchronously (DS-STAR protocol).
-- **LLM Integration**: LangChain integration strictly coupled to NVIDIA NIM endpoints.
-- **REST Endpoints**: Routes for uploading files, analyzing data context, and running the agent loop.
+1. **Presentation Layer (Frontend)**
+   Built on React 19 and Vite. Designed to respond instantaneously to reactive datasets and real-time streaming states. Components communicate exclusively via clean HTTP/REST and consume SSE connections dynamically.
 
-### 3. State Persistence (Supabase)
-Supabase is used as the remote datastore.
-- The `services/supabase_service.py` handles writing tracking metrics, user agent histories, and statuses for each run execution.
-- Enables history fetching via the `/agent/runs` endpoints.
+2. **Application Layer (FastAPI Backend)**
+   The backend logic, written in Python 3.10+, routes tasks and heavily utilizes asynchronous I/O to ensure the high-latency LLM inference calls do not block the active process loop. FastAPI guarantees schema rigor via Pydantic.
 
-## Data Flow
+3. **Data & Observability Layer (Supabase)**
+   Used to persist complex relational telemetry data (agent cycles, inference times, generated context). Supabase ensures stateless backend environments can rapidly spin up and tear down.
 
-1. **Ingest Phase**: Files are uploaded via the `/api/upload` endpoint and validated.
-2. **Contextualizing**: The `/api/process` endpoint triggers extraction/processing on the uploaded files and constructs a `_processing_context`.
-3. **Execution**: The user sends a task/query via SSE to `/api/agent/run`. The orchestrator executes the Plan-Code-Execute-Verify loop.
-4. **Metrics**: Performance constraints like memory/time and agent loop complexities are saved to Supabase upon completion.
+## Component Interaction
+
+- **Client → Backend Router**: Standard REST API calls execute initial configuration (file uploads, initial validations).
+- **Backend Router → Orchestrator**: User prompts initiate a workflow inside the `DsStarOrchestrator`.
+- **Orchestrator → Agents**: The orchestrator triggers individual LangChain-backed agent classes (`PlannerAgent`, `CoderAgent`), parsing specific prompt configurations and injecting available system metadata.
+- **Agent → LLM**: Queries are evaluated via LangChain connected exclusively to NVIDIA NIM endpoints.
+- **Orchestrator → Frontend**: While waiting for execution loops and code interpretation, the orchestrator emits strict Server-Sent Events (SSE) detailing its phase (e.g., `planning`, `executing`), including serialized string fragments and parsed tool messages.
+
+## Data Flow Lifecycle
+
+> [!NOTE]
+> Ensuring a strict context barrier between untrusted dataset ingestion and secure LLM inference is critical. LoopMind implements a highly constrained sandbox protocol.
+
+1. **Multi-Modal Ingestion**: Clients upload data (CSV, TXT, images) to `/api/upload`.
+2. **Context Normalization**: The backend digests inputs via `FileAnalyzerAgent` and constructs an isolated memory context layout (`_processing_context`).
+3. **Execution Request**: The user submits a natural-language query sent via SSE connection to `/api/agent/run`.
+4. **Agent Loop**: The `DsStarOrchestrator` runs its loop:
+   - Evaluates intention (`Planner`).
+   - Generates executable scripts (`Coder`).
+   - Executes via Docker Sandbox (`CodeExecutor`).
+   - Evaluates final runtime state securely (`Verifier`).
+5. **Persistence**: Execution statistics, token approximations, and prompt summaries are shipped asynchronously to Supabase.
+
+## Scalability Considerations
+
+- **Stateless Backend Design**: The FastAPI server holds zero critical memory states across active queries (outside of temporary uploaded contexts), making it instantly horizontally scalable.
+- **Docker Sandbox Limitation**: The built-in `CodeExecutor` securely sandboxes runtime execution to limit untrusted generated-code side-effects. Scaling this requires mapping Docker deployment constraints properly to host nodes.
+- **Supabase Scaling**: Metrics rely heavily on normalized relational insertions. Supabase scaling guarantees robust caching for historical agent review (`/api/agent/runs`).
+- **SSE Stream Handling**: Server-Sent Events are bound by long-lived connections. Horizontal scaling requires proper load balancers capable of sustained connections without aggressive proxy-timeouts.

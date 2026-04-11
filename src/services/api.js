@@ -1,5 +1,5 @@
 /**
- * api.js — Semantica Backend Service Layer
+ * api.js — LoopMind Backend Service Layer
  *
  * Wraps all FastAPI endpoints. The Vite dev proxy forwards /api/* → http://localhost:8000/api/*
  * so no hard-coded origin is needed here.

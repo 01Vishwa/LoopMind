@@ -72,7 +72,7 @@ export function HomePage() {
               <Cpu size={18} className="text-white" />
             </div>
             <div>
-              <span className="font-bold text-slate-800 text-base tracking-tight">DocMind</span>
+              <span className="font-bold text-slate-800 text-base tracking-tight">LoopMind</span>
               <span className="ml-2 text-[10px] font-semibold px-1.5 py-0.5 rounded-full
                                bg-brand-50 text-brand-600 uppercase tracking-wider">
                 DS-STAR

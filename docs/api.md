@@ -1,31 +1,74 @@
 # REST API Endpoints
 
-The Semantica backend uses FastAPI. All endpoints are prefixed with `/api`. Note that Vite proxies the `/api` route directly to `http://localhost:8000/api` during development.
+The LoopMind backend leverages FastAPI. All HTTP interactions are prefixed with `/api`.
+*(Note: Vite locally proxies frontend `/api` requests directly to `http://localhost:8000/api`)*
 
-## Setup & File Management
+---
+
+## 1. Context & File Management
 
 ### `POST /api/upload`
-Validates and persists uploaded files safely into the system's temporary context constraint.
-- **Payload**: `multipart/form-data` with `files` (array of `UploadFile`).
+Validates and safely persists uploaded context documents into the system's temporary constraint memory. Expects `multipart/form-data`.
+- **Request Body**: `files` (Array of `UploadFile`)
+- **Response**:
+  ```json
+  {
+    "message": "Files uploaded successfully.",
+    "files": ["data.csv", "report.txt"]
+  }
+  ```
 
 ### `POST /api/process`
-Processes the cached files into a normalized in-memory context that provides context to the agents.
-- **Payload**: `{"files": ["array", "of", "filenames"]}`
+Instructs the File Analyzer logic to parse in-memory document structures, building normalized context boundaries.
+- **Request Body**:
+  ```json
+  {
+    "files": ["data.csv", "report.txt"]
+  }
+  ```
+- **Response**: Context processing metadata.
 
 ### `DELETE /api/clear`
-Wipes the internal global processing and byte contexts for fresh restarts.
+Nullifies global cache states, resetting data constraints safely.
 
-## DS-STAR Agent Loop
+---
+
+## 2. DS-STAR Agent Loop
 
 ### `POST /api/agent/run`
-Streams the DS-STAR agent events sequentially utilizing Server-Sent Events (SSE). Emits `event` structures outlining `"analyzing"`, `"planning"`, `"coding"`, `"execution_result"`, `"artifact"`, `"verification_result"`, and `"metrics"`.
-- **Payload**: `AgentRunRequest` context defining the `session_id`, `max_rounds`, LLM models, and `query`.
+The primary interaction endpoint. Streams the DS-STAR agent lifecycle sequentially utilizing **Server-Sent Events (SSE)**.
 
-## History Management (Supabase)
+- **Request Payload**: 
+  ```json
+  {
+    "session_id": "uuid-v4-string",
+    "query": "Generate a plot of the uploaded customer metrics.",
+    "max_rounds": 3
+  }
+  ```
+- **Response Stream (`text/event-stream`)**:
+  Emits parsed line events updating real-time statuses.
+  ```text
+  data: {"event": "status", "data": "analyzing"}
+  data: {"event": "status", "data": "planning"}
+  data: {"event": "status", "data": "coding"}
+  data: {"event": "execution_result", "data": {"stdout": "Success", "stderr": ""}}
+  data: {"event": "artifact", "data": {"type": "image/png", "content": "base64..."}}
+  data: {"event": "verification_result", "data": {"passed": true}}
+  data: {"event": "metrics", "data": {"time": 1.2, "loops": 1}}
+  ```
+
+---
+
+## 3. History & Telemetry (Supabase)
 
 ### `GET /api/agent/runs`
-Lists past agent runs for a specific user from Supabase.
-- **Parameters**: `user_id` (optional), `limit` (default: 20).
+Retrieves paginated analytics representing agent telemetry histories.
+- **Query Parameters**:
+  - `user_id` (string, optional)
+  - `limit` (integer, default: 20)
+- **Response**: Array of execution summarizations.
 
 ### `GET /api/agent/runs/{run_id}`
-Retrieves all telemetry, details, and prompts belonging to a single agent run execution.
+Retrieves deep diagnostic telemetry detailing execution contexts, explicit prompt definitions, and loop timelines for a unique run.
+- **Response**: Detailed JSON encapsulating full `CodeExecutor` histories and `Planner` logic maps.

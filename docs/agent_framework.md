@@ -1,34 +1,52 @@
 # DS-STAR Agent Framework
 
-The backbone of Semantica is the DS-STAR (Data Science - Self-Taught Agent with Reasoning) Orchestrator. It implements an iterative Plan → Code → Execute → Verify → Route cycle.
+The structural advantage of LoopMind relies entirely on its specialized agent methodology. We call this the **DS-STAR (Data Science - Self-Taught Agent with Reasoning)** Orchestrator. 
 
-## Loop Lifecycle
+It handles complex multi-step logical operations through an iterative **Plan → Code → Execute → Verify → Route** cycle.
 
-The `DsStarOrchestrator` (`backend/core/ds_star_orchestrator.py`) handles all state and SSE streaming of agent steps to the frontend. Wait and retry policies back each of these agents through `tenacity`.
+## Execution Lifecycle
+
+The DS-STAR loop is managed by `DsStarOrchestrator`. It initiates concurrent streams mapping agent progress to frontend consumers while handling asynchronous wait/retry logic behind the scenes using `tenacity`.
+
+```text
+[User Prompt] -> Planner -> Coder -> Docker Sandbox -> Verifier -> [Pass] -> Output
+                                                                -> [Fail] -> Router -> Planner (Retry)
+```
+
+## Agent Responsibilities
 
 ### 1. FileAnalyzerAgent
-- **Purpose**: Consumes incoming datasets or extracted texts.
-- **Action**: Constructs meaningful context definitions or summaries of the data for the planner to interpret.
+- **Purpose**: Consumes and interprets incoming unstructured datastores.
+- **Core Function**: Extracts schematic structures, summaries, and logical relationships to append context to the planner.
+- **Output**: Meaningful system context definitions.
 
 ### 2. PlannerAgent
-- **Purpose**: Creates an initial multi-step execution plan based on the user's query and the data descriptions.
-- **Action**: Defines what sequential computations, charting, or algorithms are required.
+- **Purpose**: Defines an exhaustive multi-step implementation approach.
+- **Core Function**: Evaluates user prompts alongside the environment contexts to describe exact sequential computations, libraries, and logic structures required.
+- **Output**: A declarative JSON/structured plan.
 
 ### 3. CoderAgent
-- **Purpose**: The primary code author.
-- **Action**: Reads the plan, user input, and context, and generates syntactically valid Python code meant to answer or process the user request.
+- **Purpose**: Translates the logical plan into functional code.
+- **Core Function**: Contextualizes the generated plan with specific framework capabilities (e.g., Pandas syntax, UI bounds) and generates syntactically valid Python.
+- **Output**: Raw, executable `.py` strings.
 
-### 4. CodeExecutor
-- **Purpose**: Provides an isolated runtime environment to run the code securely.
-- **Action**: Extracts `stdout`, `stderr`, and specifically captures generated artifacts like `.png` charts or `.csv` files as Base64 encoded outputs.
+### 4. CodeExecutor (Sandbox)
+- **Purpose**: Environment runtime evaluation.
+- **Core Function**: Dispatches the Coder's generated python into a secure, resource-constrained isolated Docker container. Limits external networking requests and halts infinite loops.
+- **Output**: Extracts `stdout`, `stderr`, and specifically captures generated artifacts (e.g., Base64 encoded charts `.png` or tables `.csv`).
 
 ### 5. VerifierAgent
-- **Purpose**: Checks the executed code against the original user query and execution outputs.
-- **Action**: Determines if the generated results securely and accurately answer the prompt (`is_sufficient`).
+- **Purpose**: Assesses the generated logic map against reality.
+- **Core Function**: Analyzes the original user-intent, the code produced, and the exact sandbox execution `stdout`/`stderr`. Determines if outputs answer the constraints safely.
+- **Output**: Boolean `is_sufficient` state + reasoning string.
 
 ### 6. RouterAgent
-- **Purpose**: Handles insufficiency.
-- **Action**: If the Verifier evaluates the result as inadequate, the Router evaluates why and chooses whether to fix a specific plan step, add a step, or change direction before pushing back up to the Coder.
+- **Purpose**: Error-handling and contextual routing.
+- **Core Function**: Triggered only upon a negative result from the Verifier. Evaluates the discrepancy (e.g., syntax error, logic fault, missed criteria) and re-evaluates the prompt state to send back towards the Planner.
+- **Output**: Specialized error remediation directives.
 
-## Metrics & Observability
-Metrics (`models/metrics_schema.py`) log execution time of specific phases (planner, coder, verifier) and the number of loop iterations required prior to successful verification or hard stop limits (`max_rounds`).
+## Failure Handling (Retry & Routing)
+
+LoopMind agents handle inherent LLM unpredictability via overlapping strategies:
+1. **Tenacity Execution Retries**: Local connectivity, parsing, or strict formatting failures implement immediate exponential backoff retries without triggering full loop restarts.
+2. **Deterministic Routing**: If the sandbox breaks (tracebacks), the Verifier halts it, triggering the Router. The Router implements programmatic `max_rounds` constraints (default: 3) to prevent endless hallucination loops. Upgrades or refines instructions to the Planner to shift strategies.

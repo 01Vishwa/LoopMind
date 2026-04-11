@@ -1,50 +1,168 @@
-# Semantica
+# LoopMind
 
-Semantica is an **Intelligent Document Processing (IDP)** Platform powered by an iterative Data Science AI. At its core lives the **DS-STAR Agent Framework**, an AI loop that reads data, plans, codes, executes locally, and self-verifies.
+> **Intelligent Document Processing (IDP) Platform** powered by the DS-STAR Agent Workflow.
+> LoopMind autonomously interprets, plans, codes, executes, and verifies complex data operations.
 
 ![React](https://img.shields.io/badge/React-19-blue?logo=react)
 ![FastAPI](https://img.shields.io/badge/FastAPI-latest-green?logo=fastapi)
 ![Python](https://img.shields.io/badge/Python-3.10+-blue?logo=python)
+![Supabase](https://img.shields.io/badge/Supabase-Database-10b981?logo=supabase)
+![LangChain](https://img.shields.io/badge/LangChain-AI-f59e0b)
 
-## 📖 Deep Dive Documentation
-Everything regarding the underlying framework logic and structure is documented in our new `docs/` folder:
+## 📖 Overview
 
-- 🏗️ **[System Architecture](docs/architecture.md)** — Explores the structural design, tech stack overview, and interaction between the Vite Frontend, FastAPI Backend, and Supabase persistent layers.
-- 🤖 **[DS-STAR Agent Framework](docs/agent_framework.md)** — Breakdown of the iterative workflow consisting of specialized LLMs: `FileAnalyzerAgent`, `PlannerAgent`, `CoderAgent`, `VerifierAgent`, `RouterAgent`.
-- 🔌 **[API Reference](docs/api.md)** — The definitions of the REST and the core SSE streaming endpoints.
-- 🎨 **[Frontend Architecture](docs/frontend.md)** — Breakdown of Vite, React Hook states, and UI components used.
+LoopMind is a production-grade, multi-agent AI platform built for Intelligent Document Processing. By leveraging the **DS-STAR Framework** (Data Science - Self-Taught Agent with Reasoning), the platform dynamically analyzes datasets, generates Python code to process them, executes the code in a secure sandbox, and self-verifies the output against user constraints.
 
----
+## ✨ Key Features
 
-## 🚀 Quick Start / Local Setup
+- **Autonomous Agent Loop**: Plan → Code → Execute → Verify → Route.
+- **Secure Sandboxing**: Executes AI-generated code securely within isolated Docker containers.
+- **Real-Time Streaming**: Live streaming of agent states, execution progress, and execution artifacts using Server-Sent Events (SSE).
+- **Persistent Analytics**: Comprehensive run histories, telemetry, and observability metrics via Supabase.
+- **Modern UI**: Polished, highly responsive UI built on React 19 and Tailwind CSS.
+- **Multi-Modal Data Ingestion**: Robust support for text, CSV, and varied document formats.
 
-### 1. Requirements
-Ensure you have the following installed:
-- [Node.js (18+)](https://nodejs.org/)
-- [Python 3.10+](https://www.python.org/)
+## 🏗️ System Architecture
+
+LoopMind is structured to handle high-throughput, compute-intensive agent routines while keeping the user experience completely synchronous and seamless.
+
+```mermaid
+flowchart TD
+    classDef frontend fill:#3b82f6,stroke:#1d4ed8,stroke-width:2px,color:#fff
+    classDef backend fill:#10b981,stroke:#047857,stroke-width:2px,color:#fff
+    classDef ai_layer fill:#8b5cf6,stroke:#6d28d9,stroke-width:2px,color:#fff
+    classDef storage fill:#f59e0b,stroke:#b45309,stroke-width:2px,color:#fff
+    classDef sandbox fill:#64748b,stroke:#334155,stroke-width:2px,stroke-dasharray: 5 5,color:#fff
+
+    User((User))
+    
+    subgraph Frontend [React 19 Frontend]
+        UI[User Interface & Hooks]:::frontend
+    end
+    
+    subgraph Backend_FastAPI [FastAPI Backend]
+        REST_API[REST & SSE Endpoints]:::backend
+        Orchestrator[DS-STAR Orchestrator]:::backend
+        
+        subgraph Agent_Loop [AI Control Loop]
+            FileAnalyzer[File Analyzer]:::ai_layer
+            Planner[Planner]:::ai_layer
+            Coder[Coder]:::ai_layer
+            Verifier[Verifier]:::ai_layer
+            Router[Router]:::ai_layer
+        end
+
+        Sandbox[[CodeExecutor Sandbox]]:::sandbox
+    end
+    
+    subgraph Infrastructure [Data & LLM]
+        Supabase[(Supabase DB)]:::storage
+        LLM[NVIDIA NIM via LangChain]:::ai_layer
+    end
+
+    User -->|Interacts| UI
+    UI -->|REST & SSE| REST_API
+    REST_API --> Orchestrator
+    
+    Orchestrator --> FileAnalyzer
+    Orchestrator --> Planner
+    Planner --> Coder
+    Coder -.->|Executes Code| Sandbox
+    Sandbox -.->|Stdout/Artifacts| Verifier
+    Verifier -->|Evaluates| Router
+    Router -->|Retry/Refine| Planner
+    
+    Agent_Loop <-->|Inference| LLM
+    Orchestrator -->|Metrics & History| Supabase
+```
+
+## 💻 Tech Stack
+
+- **Frontend**: React 19, Vite, Tailwind CSS, Lucide React
+- **Backend**: FastAPI, Python 3.10+, Tenacity (retries)
+- **AI/LLM**: LangChain, NVIDIA NIM
+- **Execution Environment**: Docker Sandbox
+- **Database / Auth**: Supabase
+
+## 📁 Project Structure
+
+```text
+LoopMind/
+├── backend/
+│   ├── agents/            # DS-STAR logic (Planner, Coder, Verifier, Router, FileAnalyze)
+│   ├── core/              # Main logic, Prompts, Configs, DS-STAR Orchestrator
+│   ├── code_executor/     # Docker-based secure Python runtime script
+│   ├── models/            # Pydantic schema validation & metrics
+│   ├── routers/           # FastAPI execution routes (API logic)
+│   ├── services/          # External connections (Supabase, State Tracking)
+│   └── main.py            # FastAPI Entry Point
+├── frontend/
+│   ├── src/
+│   │   ├── components/    # Reusable React components (HistoryPanel, etc.)
+│   │   ├── hooks/         # Custom state hooks (useAgentRun)
+│   │   └── App.jsx        # Core UI Wrapper & Routing
+│   ├── vite.config.js     # Bundler configuration
+│   └── package.json       # Node dependencies
+└── docs/                  # Detailed architectural and API documentation
+```
+
+## 🔌 API Overview
+
+Core API endpoints ensuring communication between client and AI engine:
+
+- `POST /api/agent/run` - Initiates the DS-STAR agent loop and returns progress via Server-Sent Events (SSE).
+- `POST /api/upload` - Securely ingest multi-document context into active memory.
+- `GET /api/agent/runs` - Fetches global histories from Supabase metrics.
+- `GET /api/agent/runs/{id}` - Details specific metric data from past executions.
+
+## 🤖 Agent Workflow Explanation
+
+LoopMind follows a deterministic AI execution sequence:
+1. **File Analyzer**: Normalizes ingested documents into raw data schemas.
+2. **Planner**: Transforms user intents into actionable, modular steps.
+3. **Coder**: Emits valid executable code targeting requested visualizations or data outputs.
+4. **Executor**: Evaluates output securely.
+5. **Verifier & Router**: Evaluates execution outputs against requirements and gracefully re-runs or repairs defects up to 3 rounds.
+
+## 🚀 Quick Start
+
+### 1. Prerequisites
+- Docker Engine (for sandbox execution)
+- Node.js 18+
+- Python 3.10+
 
 ### 2. Backend Setup
-Set up the python environment and run the backend endpoints:
 ```bash
 cd backend
 python -m venv venv
-# Windows: venv\Scripts\activate.ps1  |  Mac/Linux: source venv/bin/activate
+source venv/bin/activate  # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 
-# Environment Setup
 cp .env.example .env
-# Edit your .env with your LLM Endpoints (like NIM) & Supabase credentials
-
-# Run Server
+# Fill in NVIDIA_NIM_API_KEY and SUPABASE keys
 python main.py
 ```
-> Fast API will start serving at `http://localhost:8000`
 
 ### 3. Frontend Setup
-Run the development environment in a new terminal prompt:
 ```bash
-# From root directory
+cd frontend  # or run from project root if setup allows
 npm install
 npm run dev
 ```
-> The vite proxy will automatically link `/api` calls to the python port. Follow the output URL (`localhost:5173` typically) to launch the app UI.
+
+> The application will be running at `http://localhost:5173` with backend API proxying properly configured.
+
+## 📸 Screenshots / Flow
+*(Optional visual placeholders - coming soon!)*
+<!-- - ![Upload Flow](/assets/placeholder-upload.png) -->
+<!-- - ![Agent Loop](/assets/placeholder-loop.png) -->
+
+## 🤝 Contribution Guide
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
+3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to the branch (`git push origin feature/AmazingFeature`)
+5. Open a Pull Request
+
+## 📄 License
+This project is licensed under the MIT License - see the LICENSE file for details.

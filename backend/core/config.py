@@ -54,7 +54,7 @@ IDP_ALLOWED_FORMATS: Set[str] = set(ALLOWED_MIME_TYPES.keys())
 
 SUPABASE_URL: str = os.getenv("SUPABASE_URL", "")
 SUPABASE_PUBLISHABLE_KEY: str = os.getenv("SUPABASE_PUBLISHABLE_KEY", "")
-SUPABASE_BUCKET: str = os.getenv("SUPABASE_BUCKET", "semantica-uploads")
+SUPABASE_BUCKET: str = os.getenv("SUPABASE_BUCKET", "loopmind-uploads")
 
 # ---------------------------------------------------------------------------
 # NVIDIA NIM configuration

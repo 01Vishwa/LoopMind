@@ -12,7 +12,7 @@ from middleware.error_handler import global_exception_handler
 
 
 app = FastAPI(
-    title="Semantica Backend",
+    title="LoopMind Backend",
     description="Intelligent Document Processing API",
     version="1.0.0"
 )

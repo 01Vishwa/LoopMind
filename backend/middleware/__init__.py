@@ -1,1 +1,1 @@
-"""Middleware package for Semantica backend."""
+"""Middleware package for LoopMind backend."""

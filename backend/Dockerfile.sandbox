@@ -1,11 +1,11 @@
-# Dockerfile.sandbox — Semantica Code Execution Sandbox
+# Dockerfile.sandbox — LoopMind Code Execution Sandbox
 #
 # Pre-built image for running DS-STAR generated Python scripts in isolation.
 # Activated by setting DOCKER_SANDBOX_ENABLED=true and DOCKER_SANDBOX_IMAGE
-# to the tag you build this image as (e.g. semantica-sandbox:latest).
+# to the tag you build this image as (e.g. loopmind-sandbox:latest).
 #
 # Build:
-#   docker build -f Dockerfile.sandbox -t semantica-sandbox:latest .
+#   docker build -f Dockerfile.sandbox -t loopmind-sandbox:latest .
 #
 # The container is always started with:
 #   --network none     (no outbound internet)

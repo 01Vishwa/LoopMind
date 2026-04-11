@@ -1,1 +1,1 @@
-"""Services package for Semantica backend."""
+"""Services package for LoopMind backend."""
