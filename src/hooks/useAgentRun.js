@@ -8,10 +8,12 @@
 
 import { useState, useCallback, useRef } from 'react'
 import { toast } from '../components/shared/Toast'
-import { runAgentStream } from '../services/agentApi'
+import { createCancellableStream } from '../services/agentApi'
 import { DEFAULT_SETTINGS } from '../components/agent/AgentSettings'
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000/api'
+// Always use the Vite dev proxy path — never hardcode the backend port.
+// This avoids CORS issues and matches the agentApi.js convention.
+const API_BASE = '/api'
 
 /**
  * Provides live DS-STAR agent state and a submit handler.
@@ -33,12 +35,23 @@ export function useAgentRun(files) {
   const [historyRuns, setHistoryRuns] = useState([])
   const [historyLoading, setHistoryLoading] = useState(false)
   const [settings, setSettings] = useState({ ...DEFAULT_SETTINGS })
+  const [activeRunId, setActiveRunId] = useState(null)   // run_id from backend
   // Evaluation metrics (from 'metrics' SSE event)
   const [runMetrics, setRunMetrics] = useState(null)
   const [totalRunMs, setTotalRunMs] = useState(0)
   const [complexity, setComplexity] = useState('easy')
   const [showMetrics, setShowMetrics] = useState(false)
+  
+  // Deep Research mode state
+  const [isResearchMode, setIsResearchMode] = useState(false)
+  const [subQuestions, setSubQuestions] = useState([])
+  const [researchReport, setResearchReport] = useState(null)
+  
   const abortRef = useRef(false)
+  const stepTimeoutsRef = useRef([])
+  // Holds the { abort } handle returned by createCancellableStream.
+  // Calling streamRef.current?.abort() stops the fetch AND signals the server.
+  const streamRef = useRef(null)
 
   const addLog = useCallback((text, type = 'info') => {
     setExecutionLogs((prev) => [...prev, { text, type, ts: Date.now() }])
@@ -50,6 +63,16 @@ export function useAgentRun(files) {
     const { event: type, payload } = event
 
     switch (type) {
+      case 'run_started':
+        // Backend confirmed run created — store the run_id for later
+        setActiveRunId(payload?.run_id || null)
+        break
+
+      case 'report_started':
+        // DS-STAR+ deep research run started — use report_id as the active run identifier
+        setActiveRunId(payload?.report_id || null)
+        break
+
       case 'analyzing':
         setPhase('analyzing')
         setAgentStatus('analyzing')
@@ -166,7 +189,94 @@ export function useAgentRun(files) {
         addLog(`[Router] Plan updated (${payload.action}) — ${(payload.steps || []).length} steps.`, 'warn')
         break
 
-      // ── Retry events (fix #8) ───────────────────────────────────────────
+      case 'debugging':
+        setPhase('debugging')
+        setAgentStatus('debugging')
+        addLog(`[Debugger] ${payload.message}`, 'warn')
+        break
+
+      case 'debug_applied':
+        addLog(`[Debugger] ✓ ${payload.message}`, 'success')
+        break
+
+      case 'finalizing':
+        setPhase('finalizing')
+        setAgentStatus('finalizing')
+        addLog('[Finalizer] ' + payload.message, 'info')
+        break
+
+      case 'finalized':
+        addLog('[Finalizer] ✓ ' + payload.message, 'success')
+        break
+
+      // ── Deep Research Events ──
+      case 'research_started':
+        setIsResearchMode(true)
+        setPhase('analyzing')
+        setAgentStatus('researching')
+        addLog('[DeepResearch] ' + payload.message, 'info')
+        break
+
+      case 'retrieval_complete':
+        addLog('[Retriever] ' + payload.message, 'info')
+        break
+
+      case 'generating_subquestions':
+        setPhase('generating_subquestions')
+        setAgentStatus('researching')
+        addLog('[Decomposer] ' + payload.message, 'info')
+        break
+
+      case 'subquestions_ready':
+        setSubQuestions((payload.sub_questions || []).map(q => ({
+          question: q,
+          status: 'pending'
+        })))
+        addLog(`[Decomposer] ✓ ${payload.message}`, 'success')
+        break
+
+      case 'running_subquestions':
+        setPhase('running_subquestions')
+        setAgentStatus('researching')
+        addLog('[Parallel] ' + payload.message, 'info')
+        break
+
+      case 'subquestion_started':
+        setSubQuestions(prev => prev.map((q, i) => i === payload.index ? { ...q, status: 'running' } : q))
+        addLog(payload.message, 'info')
+        break
+
+      case 'subquestion_complete':
+        setSubQuestions(prev => prev.map((q, i) => i === payload.index ? { ...q, status: payload.status } : q))
+        addLog(payload.message, payload.status === 'completed' ? 'success' : 'warn')
+        break
+
+      case 'all_subquestions_complete':
+        addLog('[Parallel] ✓ ' + payload.message, 'success')
+        break
+
+      case 'writing_report':
+        setPhase('writing_report')
+        setAgentStatus('researching')
+        addLog('[ReportWriter] ' + payload.message, 'info')
+        break
+
+      case 'research_complete':
+        setPhase('completed')
+        setAgentStatus('completed')
+        setResearchReport({
+          title: payload.title,
+          executive_summary: payload.executive_summary,
+          report_body: payload.report_body,
+          key_findings: payload.key_findings || [],
+          caveats: payload.caveats || [],
+          total_ms: payload.total_ms || 0
+        })
+        addLog('[DeepResearch] ✓ ' + payload.message, 'success')
+        toast('Deep Research complete!', 'success')
+        setTimeout(() => fetchHistory(), 1500)
+        break
+
       case 'retrying':
         addLog(
           `[⟳] ${payload.agent} — attempt ${payload.attempt} retrying…`,
@@ -184,9 +294,32 @@ export function useAgentRun(files) {
           rounds: payload.rounds,
           execution_logs: payload.execution_logs,
         })
-        if (payload.plan_steps) setPlanSteps(payload.plan_steps)
+        
+        if (payload.plan_steps) {
+          const isVerified = payload.insights?.bullets?.some(b => b.includes('✓ Approved'));
+          setPlanSteps(payload.plan_steps);
+          
+          if (isVerified) {
+            payload.plan_steps.forEach((step, index) => {
+              const tid = setTimeout(() => {
+                if (abortRef.current) return;
+                setPlanSteps((prev) => {
+                  const updated = [...prev];
+                  if (updated[index]) {
+                    updated[index] = { ...updated[index], status: 'done' };
+                  }
+                  return updated;
+                });
+              }, (index + 1) * 300);
+              stepTimeoutsRef.current.push(tid);
+            });
+          }
+        }
+        
         addLog(`[DS-STAR] ✓ Completed in ${payload.rounds} round(s).`, 'success')
         toast('DS-STAR analysis complete!', 'success')
+        // Auto-refresh history so the new run appears immediately
+        setTimeout(() => fetchHistory(), 1500)
         break
 
       // ── Evaluation metrics (new) ────────────────────────────────────────
@@ -210,6 +343,8 @@ export function useAgentRun(files) {
         setAgentStatus('failed')
         addLog('[✗] ' + payload.message, 'error')
         toast(`Agent error: ${payload.message}`, 'error')
+        // Refresh history so failed run shows with correct badge
+        setTimeout(() => fetchHistory(), 1500)
         break
 
       case 'stream_end':
@@ -225,12 +360,15 @@ export function useAgentRun(files) {
 
   // ── Submit handler ──────────────────────────────────────────────────────
   const handleSubmit = useCallback(
-    async (query) => {
+    async (query, sessionId = '') => {
       const uploadedFiles = files.filter((f) => f.progress === 100)
       if (uploadedFiles.length === 0) {
         toast('Please upload at least one file first', 'error')
         return
       }
+
+      stepTimeoutsRef.current.forEach(clearTimeout)
+      stepTimeoutsRef.current = []
 
       abortRef.current = false
       setAgentStatus('analyzing')
@@ -242,23 +380,48 @@ export function useAgentRun(files) {
       setCurrentRound(0)
       setOutput(null)
       setVerifierFeedback(null)
+      setActiveRunId(null)  // clear previous run_id
+      setIsResearchMode(false)
+      setSubQuestions([])
+      setResearchReport(null)
 
       addLog(`[DS-STAR] Starting run for query: "${query}"`, 'info')
 
+      // Cancel any in-flight stream before starting a new one
+      streamRef.current?.abort()
+
+      const { promise, abort } = createCancellableStream(
+        query,
+        handleAgentEvent,
+        sessionId,
+        settings,
+      )
+      streamRef.current = { abort }
+
       try {
-        await runAgentStream(query, handleAgentEvent, '', settings)
+        await promise
       } catch (err) {
+        if (err?.name === 'AbortError') return   // user cancelled — not an error
         setAgentStatus('failed')
         setPhase('error')
         addLog('[✗] Stream error: ' + err.message, 'error')
         toast(`Agent failed: ${err.message}`, 'error')
       }
     },
-    [files, handleAgentEvent, addLog],
+    // 'settings' and 'sessionId' MUST be in deps to avoid stale closures.
+    [files, settings, handleAgentEvent, addLog],
   )
 
   // ── Reset handler ───────────────────────────────────────────────────────
   const handleReset = useCallback(() => {
+    stepTimeoutsRef.current.forEach(clearTimeout)
+    stepTimeoutsRef.current = []
+
+    // Abort the in-flight SSE stream — this signals AbortController.abort(),
+    // which closes the fetch AND triggers the server's is_disconnected() check.
+    streamRef.current?.abort()
+    streamRef.current = null
+
     abortRef.current = true
     setAgentStatus('idle')
     setPhase('idle')
@@ -273,6 +436,9 @@ export function useAgentRun(files) {
     setTotalRunMs(0)
     setComplexity('easy')
     setShowMetrics(false)
+    setIsResearchMode(false)
+    setSubQuestions([])
+    setResearchReport(null)
   }, [])
 
   // ── History: fetch run list (fix #6) ────────────────────────────────────
@@ -315,6 +481,9 @@ export function useAgentRun(files) {
         execution_logs: run.execution_logs || [],
       })
       setVerifierFeedback(null)
+      setIsResearchMode(false)
+      setSubQuestions([])
+      setResearchReport(null)
       toast(`Loaded run: "${(run.query || '').slice(0, 50)}…"`, 'success')
     } catch (err) {
       toast('Could not load run: ' + err.message, 'error')
@@ -334,6 +503,7 @@ export function useAgentRun(files) {
     artifacts,
     historyRuns,
     historyLoading,
+    activeRunId,
     settings,
     setSettings,
     handleSubmit,
@@ -345,5 +515,9 @@ export function useAgentRun(files) {
     totalRunMs,
     complexity,
     showMetrics,
+    // Deep Research state
+    isResearchMode,
+    subQuestions,
+    researchReport,
   }
 }

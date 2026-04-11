@@ -5,20 +5,40 @@
  * and duplicate handling — extracted from App.jsx.
  */
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import { toast } from '../components/shared/Toast'
 import { uploadFiles, processFiles, clearBackendCache } from '../services/api'
 
 let fileIdCounter = 0
 
 /**
+ * Generates a stable session ID for this browser tab.
+ * Uses crypto.randomUUID when available (all modern browsers), falls back
+ * to a random hex string for older environments.
+ *
+ * @returns {string} A UUID-like identifier string.
+ */
+const _generateSessionId = () =>
+  typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2)
+
+/**
  * Manages the full file lifecycle: adding, uploading, replacing duplicates, removing.
  *
- * @returns {{ files, pendingDuplicates, handleAddFiles, handleConfirmDuplicates, handleRemoveFile, handleClearAll }}
+ * Generates a stable session ID per component mount so uploaded files are
+ * stored in an isolated cache bucket on the backend (Gap 1 fix).
+ *
+ * @returns {{ files, pendingDuplicates, sessionId, handleAddFiles, handleConfirmDuplicates, handleRemoveFile, handleClearAll }}
  */
 export function useFileUpload() {
   const [files, setFiles] = useState([])
   const [pendingDuplicates, setPendingDuplicates] = useState([])
+
+  // Stable session ID for this component mount — generated once, never changes.
+  // Stored in a ref so it survives re-renders without triggering extra effects.
+  const sessionIdRef = useRef(_generateSessionId())
+  const sessionId = sessionIdRef.current
 
   // Update progress for a single file by id
   const applyProgress = useCallback((id, pct) => {
@@ -32,7 +52,7 @@ export function useFileUpload() {
     async (entriesToUpload) => {
       let uploadResult
       try {
-        uploadResult = await uploadFiles(entriesToUpload, applyProgress)
+        uploadResult = await uploadFiles(entriesToUpload, applyProgress, sessionId)
       } catch (err) {
         toast(`Upload error: ${err.message}`, 'error')
         entriesToUpload.forEach((e) => applyProgress(e.id, 0))
@@ -48,7 +68,7 @@ export function useFileUpload() {
       const acceptedNames = uploadResult.accepted_files.map((f) => f.filename)
       if (acceptedNames.length > 0) {
         try {
-          await processFiles(acceptedNames)
+          await processFiles(acceptedNames, sessionId)
           toast(
             `${acceptedNames.length} file${acceptedNames.length > 1 ? 's' : ''} uploaded successfully`,
             'success'
@@ -120,13 +140,14 @@ export function useFileUpload() {
     if (files.length > 0) {
       toast('All files cleared', 'info')
       setFiles([])
-      await clearBackendCache()
+      await clearBackendCache(sessionId)
     }
-  }, [files])
+  }, [files, sessionId])
 
   return {
     files,
     pendingDuplicates,
+    sessionId,           // expose so useAgentRun can pass it to the backend
     handleAddFiles,
     handleConfirmDuplicates,
     handleRemoveFile,

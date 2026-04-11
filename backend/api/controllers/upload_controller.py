@@ -1,11 +1,10 @@
 """Upload controller.
 
 Handles request-level orchestration for file upload:
-validates metadata, delegates disk-write to upload_service,
+validates metadata, delegates persistence to upload_service,
 and builds the structured UploadResponse.
 """
 
-import os
 from typing import List
 
 from fastapi import UploadFile
@@ -15,11 +14,16 @@ from models.schemas import UploadResponse, FileStatusItem
 from services.upload_service import save_upload_file
 
 
-async def handle_upload(files: List[UploadFile]) -> UploadResponse:
+async def handle_upload(
+    files: List[UploadFile],
+    session_id: str = "__anon__",
+) -> UploadResponse:
     """Orchestrates validation and persistence for a batch of uploaded files.
 
     Args:
-        files (List[UploadFile]): Multipart file payloads from the request.
+        files: Multipart file payloads from the request.
+        session_id: Session identifier used to bucket files in the in-memory
+            cache.  Ensures files from different users never collide.
 
     Returns:
         UploadResponse: Lists of accepted and rejected FileStatusItems.
@@ -40,24 +44,24 @@ async def handle_upload(files: List[UploadFile]) -> UploadResponse:
             continue
 
         try:
-            await save_upload_file(file)
+            await save_upload_file(file, session_id=session_id)
             accepted.append(
                 FileStatusItem(
                     filename=file.filename,
                     status="success",
-                    reason="Uploaded and correctly sanitized."
+                    reason="Uploaded and correctly sanitized.",
                 )
             )
         except ValueError as ve:
             rejected.append(
                 FileStatusItem(filename=file.filename, status="error", reason=str(ve))
             )
-        except Exception as e:
+        except Exception as e:  # pylint: disable=broad-except
             rejected.append(
                 FileStatusItem(
                     filename=file.filename,
                     status="error",
-                    reason=f"Stream error: {str(e)}"
+                    reason=f"Stream error: {str(e)}",
                 )
             )
 

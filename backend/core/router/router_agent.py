@@ -1,15 +1,22 @@
 """RouterAgent — decides how to refine an insufficient plan.
 
-Uses NVIDIA NIM (meta/llama-3.1-70b-instruct) with ``.with_structured_output``
-for hard schema-compliance.  No format-instruction strings are injected —
-the model is constrained at the API function-calling level.
+Uses NVIDIA NIM with ``.with_structured_output`` for hard schema-compliance.
+
+Gap fixes applied:
+- Added ``REMOVE_STEPS`` action to match the paper's diagram (Router can prune
+  wrong steps, not just append/fix them).
+- Removed ``data_description`` from the router prompt (unnecessary tokens).
+- Added ``execution_output`` parameter so the router sees actual error tracebacks.
 """
 
 import logging
+import threading
 from typing import Any, Dict, List, Literal, Optional
 
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
+
+from core.token_tracker import TokenTracker, tracker_callback_config
 
 logger = logging.getLogger("uvicorn.info")
 
@@ -27,50 +34,79 @@ class StepDetail(BaseModel):
 
 
 class RouterOutput(BaseModel):
-    """Routing decision from the LLM optimizer."""
+    """Routing decision from the LLM plan optimizer."""
 
-    action: Literal["ADD_STEP", "FIX_STEP"] = Field(
+    action: Literal["ADD_STEP", "FIX_STEP", "REMOVE_STEPS"] = Field(
         description=(
-            "ADD_STEP to append a new step at the end, "
-            "FIX_STEP to replace an existing broken step."
+            "ADD_STEP to append a new step at the end. "
+            "FIX_STEP to replace an existing broken step. "
+            "REMOVE_STEPS to prune all steps from ``remove_from_index`` onward "
+            "when the plan took a fundamentally wrong direction."
         )
     )
     step_index: Optional[int] = Field(
         default=None,
         description=(
-            "Zero-based index of the step to fix "
-            "(required for FIX_STEP, null for ADD_STEP)."
+            "Zero-based index of the step to fix (required for FIX_STEP, "
+            "null otherwise)."
         ),
     )
-    new_step: StepDetail = Field(description="The new or replacement step content.")
+    remove_from_index: Optional[int] = Field(
+        default=None,
+        description=(
+            "Zero-based index from which to remove steps (inclusive). "
+            "Required for REMOVE_STEPS."
+        ),
+    )
+    new_step: StepDetail = Field(
+        description=(
+            "The new or replacement step content. "
+            "For REMOVE_STEPS, this is the corrected first step to put in place "
+            "of the removed ones."
+        )
+    )
 
 
 # ---------------------------------------------------------------------------
-# Prompts (no {format_instructions} injection needed)
+# Prompts
 # ---------------------------------------------------------------------------
 
 _ROUTER_SYSTEM = """\
 You are a data science plan optimizer.
-The current analysis plan was judged as INSUFFICIENT.
-Your job is to decide the best way to fix it.
+The current analysis plan was judged as INSUFFICIENT by a quality judge.
+Your job is to decide the single best repair action.
 
-Choose ONE of the following actions:
-- "ADD_STEP": Add a new step at the end of the plan.
-- "FIX_STEP": Replace an existing step that is incorrect or incomplete.
+Choose ONE action:
+
+1. "ADD_STEP": Add a new step at the END of the plan.
+   Use when: the plan is correct so far but incomplete.
+
+2. "FIX_STEP": Replace a specific existing step that is wrong/incomplete.
+   Use when: one step is identified as the root cause of failure.
+   Set step_index to the zero-based index of the broken step.
+
+3. "REMOVE_STEPS": Prune all steps from ``remove_from_index`` onward,
+   replacing them with a single corrected step.
+   Use when: the plan took a fundamentally wrong direction and multiple
+   steps need to be discarded.
+
+The verifier feedback and execution errors will guide your decision.
+If there is a Python traceback in the execution output, prefer FIX_STEP or REMOVE_STEPS.
+If execution succeeded but output is incomplete, prefer ADD_STEP.
 """
 
 _ROUTER_HUMAN = """\
 USER QUERY:
 {query}
 
-DATA DESCRIPTION:
-{data_description}
-
 CURRENT PLAN STEPS:
 {plan_steps}
 
 VERIFIER FEEDBACK:
 {verifier_reason}
+
+LAST EXECUTION OUTPUT (errors/tracebacks):
+{execution_output}
 """
 
 
@@ -81,12 +117,14 @@ VERIFIER FEEDBACK:
 class RouterAgent:
     """Decides and produces the plan mutation needed after a failed verification.
 
-    Uses ``.with_structured_output`` to enforce schema compliance at the
-    function-calling protocol level — no JSON format instructions injected.
+    Supports three actions: ADD_STEP, FIX_STEP, REMOVE_STEPS.
+    Uses ``.with_structured_output`` for schema compliance.
     """
 
-    def __init__(self, model: Optional[str] = None, temperature: Optional[float] = None) -> None:
-        """Initialises the agent.  The LLM chain is built lazily on first use.
+    def __init__(
+        self, model: Optional[str] = None, temperature: Optional[float] = None
+    ) -> None:
+        """Initialises the agent.
 
         Args:
             model: NIM model identifier; defaults to ``NIM_MODEL_DEFAULT``.
@@ -94,63 +132,77 @@ class RouterAgent:
         """
         self._model = model
         self._temperature = temperature if temperature is not None else 0.1
-        self._chain = None  # lazily built by _get_chain()
+        self._chain = None  # lazily built
+        self._lock = threading.Lock()  # thread-safe lazy init
 
     def _get_chain(self):
-        """Builds and caches the structured-output LangChain pipeline on first call."""
-        if self._chain is None:
-            from core.llm_client import get_nim_llm  # pylint: disable=import-outside-toplevel
-            llm = get_nim_llm(model=self._model, temperature=self._temperature)
-            structured_llm = llm.with_structured_output(RouterOutput)
-            self._chain = (
-                ChatPromptTemplate.from_messages([
-                    ("system", _ROUTER_SYSTEM),
-                    ("human", _ROUTER_HUMAN),
-                ])
-                | structured_llm
-            )
+        """Builds and caches the structured-output LangChain pipeline."""
+        with self._lock:
+            if self._chain is None:
+                from core.llm_client import get_nim_llm  # pylint: disable=import-outside-toplevel
+                llm = get_nim_llm(model=self._model, temperature=self._temperature)
+                structured_llm = llm.with_structured_output(RouterOutput)
+                self._chain = (
+                    ChatPromptTemplate.from_messages([
+                        ("system", _ROUTER_SYSTEM),
+                        ("human", _ROUTER_HUMAN),
+                    ])
+                    | structured_llm
+                )
         return self._chain
 
     async def route(
         self,
         query: str,
-        data_description: str,
         plan_steps: List[Dict[str, Any]],
         verifier_reason: str,
+        execution_output: str = "",
+        token_tracker: Optional[TokenTracker] = None,
     ) -> Dict[str, Any]:
         """Generates a routing decision to refine the plan.
 
         Args:
             query: Original user query.
-            data_description: Output of FileAnalyzerAgent.
             plan_steps: Current plan steps.
             verifier_reason: Explanation from VerifierAgent.
+            execution_output: Combined stdout/stderr from last execution.
+            token_tracker: Optional run-level tracker.  When provided, token
+                usage from this LLM call is recorded automatically via a
+                LangChain callback.
 
         Returns:
-            Dict with keys ``action`` (str), ``step_index`` (int|None),
-            ``new_step`` (Dict).
+            Dict with keys ``action``, ``step_index``, ``remove_from_index``,
+            ``new_step``.
         """
         formatted_steps = "\n".join(
             f"  Step {s['index'] + 1}: {s['description']}"
             for s in plan_steps
         )
 
-        result: RouterOutput = await self._get_chain().ainvoke({
-            "query": query,
-            "data_description": data_description,
-            "plan_steps": formatted_steps,
-            "verifier_reason": verifier_reason,
-        })
+        # Pass enough execution output for the router to see late-appearing
+        # tracebacks (raised from 1500 → 3000 chars).
+        exec_excerpt = execution_output[:3000] if execution_output else "(none)"
+        result: RouterOutput = await self._get_chain().ainvoke(
+            {
+                "query": query,
+                "plan_steps": formatted_steps,
+                "verifier_reason": verifier_reason,
+                "execution_output": exec_excerpt,
+            },
+            config=tracker_callback_config(token_tracker),
+        )
 
         logger.info(
-            "[Router] Decision: action=%s, step_index=%s, new_step=%s",
+            "[Router] Decision: action=%s, step_index=%s, remove_from=%s, new_step=%s",
             result.action,
             result.step_index,
+            result.remove_from_index,
             result.new_step.description[:60],
         )
 
         return {
             "action": result.action,
             "step_index": result.step_index,
+            "remove_from_index": result.remove_from_index,
             "new_step": result.new_step.model_dump(),
         }

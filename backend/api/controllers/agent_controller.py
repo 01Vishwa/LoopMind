@@ -6,12 +6,24 @@ Also persists run metadata to Supabase before and after the loop, including:
 - Marking the run as "failed" when the orchestrator emits a terminal error event.
 - Persisting evaluation metrics (complexity, per-round timing) when the
   "metrics" event is emitted by the orchestrator.
+
+Fixes applied:
+- run_id always uses a fresh uuid4 (never empty string) to avoid PK collisions.
+- session_id stored separately as a column (not used as PK).
+- Emits a ``run_started`` SSE event so the frontend can display run_id.
+- All Supabase persistence is fully non-blocking (try/except, warns on failure).
+- Gap 1: session_id threaded into orchestrator so executor sees only this
+  session's files.
+- Gap 5: http_request (FastAPI Request) accepted so we can detect client
+  disconnection mid-stream and stop the server-side loop early.
 """
 
 import json
 import logging
 import uuid
 from typing import Any, AsyncGenerator, Dict, Optional
+
+from fastapi import Request
 
 from core.ds_star_orchestrator import DsStarOrchestrator
 
@@ -26,6 +38,7 @@ async def handle_agent_run(
     model: Optional[str] = None,
     coder_model: Optional[str] = None,
     temperature: Optional[float] = None,
+    http_request: Optional[Request] = None,
 ) -> AsyncGenerator[str, None]:
     """Streams DS-STAR agent events as Server-Sent Events.
 
@@ -37,11 +50,17 @@ async def handle_agent_run(
         model: Override for the reasoning LLM model.
         coder_model: Override for the code-generation LLM model.
         temperature: Override for the LLM sampling temperature (0.0–1.0).
+        http_request: FastAPI Request object — used to detect early client
+            disconnection so the server-side loop can be aborted (Gap 5).
 
     Yields:
         SSE-formatted ``data: <json>\\n\\n`` lines.
     """
-    run_id = session_id or uuid.uuid4().hex
+    # Always generate a fresh UUID for the run_id to avoid PK collisions.
+    # session_id is stored separately in a dedicated column.
+    run_id = uuid.uuid4().hex
+    _session_id = session_id or "__anon__"
+
     orchestrator = DsStarOrchestrator(
         max_rounds=max_rounds,
         model=model,
@@ -49,31 +68,44 @@ async def handle_agent_run(
         temperature=temperature,
     )
 
-    _try_create_run(run_id, query, context)
+    # Persist new run row — non-blocking, warns on failure
+    _try_create_run(run_id, _session_id, query, context)
+
+    # Emit run_id to the frontend so it can be used for resuming / history
+    yield f"data: {json.dumps({'event': 'run_started', 'payload': {'run_id': run_id}})}\n\n"
 
     try:
-        async for event in orchestrator.run(query, context):
+        async for event in orchestrator.run(
+            query,
+            context,
+            run_id=run_id,
+            session_id=_session_id,
+        ):
+            # Gap 5: abort server-side loop when the client disconnects
+            if http_request is not None and await http_request.is_disconnected():
+                logger.info(
+                    "[AgentController] Client disconnected — aborting run_id=%s", run_id
+                )
+                _try_update_run(run_id, {}, status="failed")
+                return
+
             payload = json.dumps(event, default=str)
             yield f"data: {payload}\n\n"
 
             event_type = event.get("event")
+            event_payload = event.get("payload", {})
 
             # Persist final completed result
             if event_type == "completed":
-                _try_update_run(run_id, event.get("payload", {}), status="completed")
+                _try_update_run(run_id, event_payload, status="completed")
 
             # Persist failure state so history UI shows correct badge
             elif event_type == "error":
-                _try_update_run(
-                    run_id,
-                    event.get("payload", {}),
-                    status="failed",
-                )
+                _try_update_run(run_id, event_payload, status="failed")
 
             # Persist evaluation metrics emitted by the orchestrator
             elif event_type == "metrics":
-                metrics_payload = event.get("payload", {})
-                _try_persist_metrics(run_id, metrics_payload)
+                _try_persist_metrics(run_id, event_payload)
 
     except Exception as exc:  # pylint: disable=broad-except
         error_event = json.dumps({
@@ -88,18 +120,29 @@ async def handle_agent_run(
         yield "data: {\"event\": \"stream_end\", \"payload\": {}}\n\n"
 
 
-def _try_create_run(run_id: str, query: str, context: Dict[str, Any]) -> None:
+def _try_create_run(
+    run_id: str,
+    session_id: str,
+    query: str,
+    context: Dict[str, Any],
+) -> None:
     """Attempts to create an agent_runs row in Supabase.
 
     Args:
-        run_id: Unique run identifier.
+        run_id: Unique run identifier (uuid4).
+        session_id: Client-provided session identifier (stored separately).
         query: User query.
         context: Processing context.
     """
     try:
         from services.supabase_service import create_agent_run  # pylint: disable=import-outside-toplevel
         file_names = list(context.get("combined_extractions", {}).keys())
-        create_agent_run(run_id=run_id, query=query, file_names=file_names)
+        create_agent_run(
+            run_id=run_id,
+            session_id=session_id,
+            query=query,
+            file_names=file_names,
+        )
     except Exception as exc:  # pylint: disable=broad-except
         logger.warning("[AgentController] Could not persist run start: %s", exc)
 
@@ -113,7 +156,7 @@ def _try_update_run(
 
     Args:
         run_id: Unique run identifier.
-        payload: Completed or error event payload.
+        payload: Completed or error event payload dict.
         status: Final run status — ``"completed"`` or ``"failed"``.
     """
     try:
@@ -134,8 +177,8 @@ def _try_update_run(
 def _try_persist_metrics(run_id: str, metrics_payload: Dict[str, Any]) -> None:
     """Attempts to persist run evaluation metrics to Supabase.
 
-    Stores the RunMetrics summary (complexity, round timing breakdown, etc.)
-    into the ``agent_run_metrics`` jsonb column of the agent_runs table.
+    Stores the RunMetrics summary (per-round timing, complexity tag, convergence
+    data) into the ``eval_metrics`` jsonb column of the agent_runs table.
 
     Args:
         run_id: Unique run identifier.

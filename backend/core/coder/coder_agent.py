@@ -1,19 +1,29 @@
 """CoderAgent — translates the current plan into executable Python.
 
-Uses NVIDIA NIM (meta/codellama-70b-instruct) with ``.with_structured_output``
-for hard schema-compliance.  No format-instruction strings are injected —
-the model is constrained at the API function-calling level.
+Uses NVIDIA NIM with ``.with_structured_output`` for hard schema-compliance.
 
-Artifact-output instructions are baked into the system prompt.
+Gap fixes applied:
+- Coder prompt reframed as accumulative/sequential (DS-STAR "Colab notebook"
+  model): the agent EXTENDS the previous script, not rewrites it from scratch.
+- Task-type routing added: coder adapts output mode to ML / Wrangling /
+  Visualization / Insight.
+- execution_output capped at 3 000 chars before being sent to the LLM.
+- Defensive strip of markdown fences retained.
 """
 
 import logging
+import threading
 from typing import Any, Dict, List, Optional
 
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
 
+from core.token_tracker import TokenTracker, tracker_callback_config
+
 logger = logging.getLogger("uvicorn.info")
+
+# Maximum chars of execution output passed to the coder
+_MAX_EXEC_OUTPUT_CHARS = 3_000
 
 
 # ---------------------------------------------------------------------------
@@ -32,53 +42,45 @@ class CodeOutput(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Prompts (no {format_instructions} needed)
+# Prompts
 # ---------------------------------------------------------------------------
 
 _CODER_SYSTEM = """\
-You are an expert Python data scientist.
-Your task is to generate a single, self-contained Python script that implements the analysis plan below.
+You are an expert Python data scientist working like a Jupyter/Colab notebook.
 
-Rules for the Python script:
-- Use pandas, json, matplotlib, and standard library only.
-- The script must print a clear, human-readable final answer or result summary.
-- Handle missing values and errors gracefully.
-- Use only the data described in the DATA DESCRIPTION.
-- Simulate file reading using the data content from the description if actual files are unavailable.
-- Do NOT use external APIs or network calls.
-- Include comments explaining each major section.
-- The script must be fully runnable without any arguments.
+Your task is to generate a single, self-contained Python script that implements
+the CURRENT analysis plan.
 
-CRITICAL — NEVER try to open or read raw files from disk:
-- Do NOT call open(), pd.read_csv('filename.csv'), pd.read_excel('filename.xlsx'),
-  json.load(open(...)), or ANY function that reads a file by its original name.
-- The DATA DESCRIPTION above already contains all the data you need (columns, sample rows,
-  full text content). Use that content directly in your script.
-- For CSV/XLSX documents: reconstruct the DataFrame using pd.DataFrame with the sample rows
-  from the description, or use io.StringIO with the content preview.
-- For PDF/TXT/MD documents: use the "Full Text Content" from the description as a Python string.
-- The execution sandbox is a temp directory that does NOT contain any of the original files.
+EXECUTION MODEL — Read this carefully:
+- If PREVIOUS CODE is provided, you are in a refinement round.
+- You must EXTEND the previous script by adding NEW sections at the end,
+  OR correct a broken section.  Do NOT discard working code.
+- The script runs from top to bottom each round, so all imports and data-loading
+  stay at the top; new analysis blocks go at the end.
 
-IMPORTANT — NumPy compatibility (MANDATORY):
-- NEVER use deprecated NumPy type aliases: np.object, np.int, np.float, np.bool, np.complex, np.str.
-- Instead use built-in Python types (object, int, float, bool) or explicit NumPy dtypes: np.object_, np.int64, np.float64, np.bool_, np.complex128.
+TASK TYPE OUTPUT MODES:
+- Insight / Data Analysis: print() final numeric answers clearly.
+- Visualization: save plots with plt.savefig('./outputs/<name>.png', dpi=100, bbox_inches='tight')
+- Data Wrangling: save cleaned data with df.to_csv('./outputs/<name>.csv', index=False)
+- Machine Learning: save the model with joblib.dump(model, './outputs/model.joblib')
+  AND print metrics (accuracy, RMSE, etc.)
 
-IMPORTANT — Robust data handling (MANDATORY):
-- Before any numeric calculation, coerce columns: pd.to_numeric(df['col'], errors='coerce').
-- Before correlation or statistical operations, always drop NaN rows: df.dropna(subset=['col1', 'col2']).
-- Before computing correlation, ALWAYS check for zero variance:
-    if df['col1'].std() == 0 or df['col2'].std() == 0:
-        print("Cannot compute correlation: one or more columns have zero variance (all values identical).")
-    else:
-        print(df[['col1', 'col2']].corr())
-- If a calculation produces NaN, print an explicit explanation of WHY (e.g., zero variance, all-null column, insufficient non-null pairs).
-- NEVER silently output NaN as the final result — always explain it.
+GENERAL RULES:
+- Use pandas, json, matplotlib, sklearn, joblib, and standard library only.
+- Read files by filename — files are pre-injected into the working directory.
+- NEVER call plt.show(). The ./outputs/ directory is pre-created.
+- Handle missing values gracefully with pd.to_numeric(..., errors='coerce').
+- NEVER use deprecated NumPy aliases: np.object, np.int, np.float, np.bool.
+  Use built-in types or np.object_, np.int64, np.float64, np.bool_.
+- Before correlation/statistics, check for zero variance:
+    if df['col'].std() == 0: print("Zero variance — cannot compute correlation")
+- If a result is NaN, always print WHY (zero variance, all-null, etc.).
+- The script must print a clear final answer or summary as the last action.
 
-IMPORTANT — Artifact output:
-- Save ALL plots using: plt.savefig('./outputs/<descriptive_name>.png', dpi=100, bbox_inches='tight')
-- Save ALL DataFrames using: df.to_csv('./outputs/<descriptive_name>.csv', index=False)
-- NEVER call plt.show().
-- The ./outputs/ directory is pre-created; write directly into it.
+IMPORTANT — Robust data handling:
+- Coerce numerics: pd.to_numeric(df['col'], errors='coerce')
+- Drop NaN before stats: df.dropna(subset=['col1', 'col2'])
+- NEVER silently output NaN as the final result.
 """
 
 _CODER_HUMAN = """\
@@ -88,13 +90,13 @@ USER QUERY:
 DATA DESCRIPTION:
 {data_description}
 
-ANALYSIS PLAN:
+CURRENT ANALYSIS PLAN:
 {plan_steps}
 
-PREVIOUS CODE (if any):
+PREVIOUS CODE (extend this — do not discard working sections):
 {previous_code}
 
-LAST EXECUTION OUTPUT (if any):
+LAST EXECUTION OUTPUT (errors to fix are highlighted here):
 {execution_output}
 """
 
@@ -104,14 +106,16 @@ LAST EXECUTION OUTPUT (if any):
 # ---------------------------------------------------------------------------
 
 class CoderAgent:
-    """Translates plan steps into a runnable Python script via NIM CodeLlama.
+    """Translates plan steps into a runnable Python script via NIM.
 
     Uses ``.with_structured_output`` to enforce schema compliance at the
-    function-calling protocol level — no JSON format instructions injected.
+    function-calling protocol level.
     """
 
-    def __init__(self, model: Optional[str] = None, temperature: Optional[float] = None) -> None:
-        """Initialises the agent.  The LLM chain is built lazily on first use.
+    def __init__(
+        self, model: Optional[str] = None, temperature: Optional[float] = None
+    ) -> None:
+        """Initialises the agent.
 
         Args:
             model: NIM model identifier; defaults to ``NIM_MODEL_CODER``.
@@ -119,23 +123,25 @@ class CoderAgent:
         """
         self._model = model
         self._temperature = temperature if temperature is not None else 0.1
-        self._chain = None  # lazily built by _get_chain()
+        self._chain = None  # lazily built
+        self._lock = threading.Lock()  # thread-safe lazy init
 
     def _get_chain(self):
-        """Builds and caches the structured-output LangChain pipeline using the coder LLM."""
-        if self._chain is None:
-            from core.llm_client import get_nim_llm  # pylint: disable=import-outside-toplevel
-            from core.config import NIM_MODEL_CODER  # pylint: disable=import-outside-toplevel
-            resolved = self._model or NIM_MODEL_CODER
-            llm = get_nim_llm(model=resolved, temperature=self._temperature)
-            structured_llm = llm.with_structured_output(CodeOutput)
-            self._chain = (
-                ChatPromptTemplate.from_messages([
-                    ("system", _CODER_SYSTEM),
-                    ("human", _CODER_HUMAN),
-                ])
-                | structured_llm
-            )
+        """Builds and caches the structured-output LangChain pipeline."""
+        with self._lock:
+            if self._chain is None:
+                from core.llm_client import get_nim_llm  # pylint: disable=import-outside-toplevel
+                from core.config import NIM_MODEL_CODER  # pylint: disable=import-outside-toplevel
+                resolved = self._model or NIM_MODEL_CODER
+                llm = get_nim_llm(model=resolved, temperature=self._temperature)
+                structured_llm = llm.with_structured_output(CodeOutput)
+                self._chain = (
+                    ChatPromptTemplate.from_messages([
+                        ("system", _CODER_SYSTEM),
+                        ("human", _CODER_HUMAN),
+                    ])
+                    | structured_llm
+                )
         return self._chain
 
     async def generate_code(
@@ -145,6 +151,7 @@ class CoderAgent:
         plan_steps: List[Dict[str, Any]],
         previous_code: str = "",
         execution_output: str = "",
+        token_tracker: Optional[TokenTracker] = None,
     ) -> str:
         """Generates a Python script implementing the analysis plan.
 
@@ -154,6 +161,9 @@ class CoderAgent:
             plan_steps: Current plan steps.
             previous_code: Code from the previous round (if any).
             execution_output: stdout/stderr from the previous execution.
+            token_tracker: Optional run-level tracker.  When provided, token
+                usage from this LLM call is recorded automatically via a
+                LangChain callback.
 
         Returns:
             A self-contained Python script as a string.
@@ -163,13 +173,19 @@ class CoderAgent:
             for s in plan_steps
         )
 
-        result: CodeOutput = await self._get_chain().ainvoke({
-            "query": query,
-            "data_description": data_description,
-            "plan_steps": formatted_steps,
-            "previous_code": previous_code or "(none)",
-            "execution_output": execution_output or "(none)",
-        })
+        # Cap execution output passed to coder to avoid context window exhaustion
+        trimmed_exec = execution_output[:_MAX_EXEC_OUTPUT_CHARS] if execution_output else "(none)"
+
+        result: CodeOutput = await self._get_chain().ainvoke(
+            {
+                "query": query,
+                "data_description": data_description,
+                "plan_steps": formatted_steps,
+                "previous_code": previous_code or "(none — this is round 1, write from scratch)",
+                "execution_output": trimmed_exec,
+            },
+            config=tracker_callback_config(token_tracker),
+        )
         code = result.code
 
         # Strip accidental markdown fences (defensive)

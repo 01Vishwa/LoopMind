@@ -15,12 +15,14 @@ const REASONING_MODELS = [
   { value: 'meta/llama-3.3-70b-instruct',  label: 'Llama 3.3 70B' },
   { value: 'mistralai/mistral-7b-instruct-v0.3', label: 'Mistral 7B' },
   { value: 'nvidia/llama-3.1-nemotron-70b-instruct', label: 'Nemotron 70B' },
+  { value: 'google/gemma-4-31b-it', label: 'Gemma 4 31B IT' },
 ]
 
 const CODER_MODELS = [
   { value: 'meta/codellama-70b-instruct',           label: 'CodeLlama 70B (default)' },
   { value: 'qwen/qwen2.5-coder-32b-instruct',       label: 'Qwen 2.5 Coder 32B' },
   { value: 'meta/llama-3.1-70b-instruct',           label: 'Llama 3.1 70B (general)' },
+  { value: 'google/gemma-4-31b-it',                 label: 'Gemma 4 31B IT' },
 ]
 
 export const DEFAULT_SETTINGS = {
@@ -32,6 +34,8 @@ export const DEFAULT_SETTINGS = {
 
 // ── Small labelled slider ────────────────────────────────────────────────────
 function Slider({ id, label, min, max, step, value, onChange, format }) {
+  const percentage = ((value - min) / (max - min)) * 100;
+  
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between">
@@ -52,6 +56,9 @@ function Slider({ id, label, min, max, step, value, onChange, format }) {
         onChange={(e) => onChange(Number(e.target.value))}
         className="w-full h-1.5 bg-slate-200 rounded-full appearance-none cursor-pointer
                    accent-brand-500 hover:accent-brand-600"
+        style={{
+          background: `linear-gradient(to right, #3b82f6 0%, #3b82f6 ${percentage}%, #e2e8f0 ${percentage}%, #e2e8f0 100%)`
+        }}
       />
       <div className="flex justify-between text-[10px] text-slate-400 font-medium">
         <span>{format ? format(min) : min}</span>
@@ -85,7 +92,7 @@ function Select({ id, label, value, onChange, options }) {
 }
 
 // ── Main component ───────────────────────────────────────────────────────────
-export function AgentSettings({ settings, onChange, disabled = false }) {
+export function AgentSettings({ settings, onChange, disabled = false, placement = 'inline' }) {
   const [open, setOpen] = useState(false)
 
   const updateField = (key, val) => onChange({ ...settings, [key]: val })
@@ -102,52 +109,89 @@ export function AgentSettings({ settings, onChange, disabled = false }) {
     onChange({ ...DEFAULT_SETTINGS })
   }
 
+  const isAbsolute = placement === 'header';
+
   return (
-    <div className={`rounded-xl border transition-all duration-200 ${
-      open
-        ? 'border-brand-200 bg-brand-50/40'
-        : 'border-slate-200 bg-white hover:border-brand-200'
+    <div className={`relative transition-all duration-200 ${
+      !isAbsolute
+        ? `rounded-xl border ${open ? 'border-brand-200 bg-brand-50/40' : 'border-slate-200 bg-white hover:border-brand-200'}`
+        : ''
     }`}>
-      {/* Header */}
-      <button
-        id="agent-settings-toggle"
-        onClick={() => setOpen((o) => !o)}
-        disabled={disabled}
-        className="w-full flex items-center gap-2.5 px-4 py-2.5 disabled:opacity-50 disabled:cursor-not-allowed"
-      >
-        <Settings2 size={13} className={open ? 'text-brand-500' : 'text-slate-400'} />
-        <span className={`text-[12px] font-semibold flex-1 text-left ${
-          open ? 'text-brand-700' : 'text-slate-600'
-        }`}>
-          Agent Settings
-        </span>
-
-        {isModified && (
-          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full
-                           bg-brand-100 text-brand-600 uppercase tracking-wider">
-            Modified
+      {/* Header Button */}
+      {isAbsolute ? (
+        <button
+          onClick={() => setOpen(!open)}
+          disabled={disabled}
+          className={`p-2 rounded-xl border flex items-center justify-center transition-colors shadow-sm
+            ${open ? 'bg-brand-50 border-brand-200 text-brand-600' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-700'}
+            disabled:opacity-50 disabled:cursor-not-allowed`}
+          title="Agent Settings"
+        >
+          <Settings2 size={16} />
+          {isModified && (
+            <div className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-brand-500 rounded-full border-2 border-white" />
+          )}
+        </button>
+      ) : (
+        <button
+          id="agent-settings-toggle"
+          onClick={() => setOpen((o) => !o)}
+          disabled={disabled}
+          className="w-full flex items-center gap-2.5 px-4 py-2.5 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <Settings2 size={13} className={open ? 'text-brand-500' : 'text-slate-400'} />
+          <span className={`text-[12px] font-semibold flex-1 text-left ${
+            open ? 'text-brand-700' : 'text-slate-600'
+          }`}>
+            Agent Settings
           </span>
-        )}
 
-        {isModified && !disabled && (
-          <button
-            onClick={handleReset}
-            title="Reset to defaults"
-            className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100
-                       transition-colors"
-          >
-            <RotateCcw size={11} />
-          </button>
-        )}
+          {isModified && (
+            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full
+                             bg-brand-100 text-brand-600 uppercase tracking-wider">
+              Modified
+            </span>
+          )}
 
-        {open
-          ? <ChevronUp size={13} className="text-slate-400 shrink-0" />
-          : <ChevronDown size={13} className="text-slate-400 shrink-0" />}
-      </button>
+          {isModified && !disabled && (
+            <button
+              onClick={handleReset}
+              title="Reset to defaults"
+              className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+            >
+              <RotateCcw size={11} />
+            </button>
+          )}
+
+          {open
+            ? <ChevronUp size={13} className="text-slate-400 shrink-0" />
+            : <ChevronDown size={13} className="text-slate-400 shrink-0" />}
+        </button>
+      )}
 
       {/* Body */}
       {open && (
-        <div className="px-4 pb-4 pt-1 border-t border-brand-100 space-y-5 animate-fade-in">
+        <div className={`
+          ${isAbsolute
+            ? 'absolute top-full right-0 mt-2 w-[480px] bg-white/95 backdrop-blur-md shadow-xl border border-slate-200/80 rounded-2xl px-6 pb-6 pt-5 space-y-6 z-50'
+            : 'px-4 pb-4 pt-1 border-t border-brand-100 space-y-5'}
+          animate-fade-in
+        `}>
+          {isAbsolute && (
+            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+              <span className="text-[13px] font-bold text-slate-800">Agent Settings</span>
+              {isModified && !disabled && (
+                <button
+                  onClick={handleReset}
+                  className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-400 hover:text-brand-600 transition-colors"
+                >
+                  <RotateCcw size={12} />
+                  Reset Defaults
+                </button>
+              )}
+            </div>
+          )}
+
           {/* Max Rounds */}
           <Slider
             id="setting-max-rounds"

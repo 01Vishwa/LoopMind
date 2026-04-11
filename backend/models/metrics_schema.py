@@ -89,17 +89,14 @@ class RunMetrics(BaseModel):
 
 
 class RoundTimingCollector:
-    """Context-manager-style helper for recording per-stage timing within a round.
+    """Helper for recording per-stage timing within a single agent round.
 
     Usage::
 
         collector = RoundTimingCollector(round_num=1)
-        with collector.time("coder"):
-            result = await coder.generate_code(...)
+        collector.record("coder", elapsed_ms)
         metric = collector.build()
     """
-
-    import time as _time
 
     def __init__(self, round_num: int) -> None:
         self._round_num = round_num
@@ -108,8 +105,24 @@ class RoundTimingCollector:
         self._completion_tokens = 0
 
     def record(self, stage: str, elapsed_ms: int) -> None:
-        """Manually records a timing entry."""
+        """Manually records a timing entry.
+
+        Args:
+            stage: Stage name (e.g. ``"coder"``, ``"executor"``).
+            elapsed_ms: Elapsed milliseconds for the stage.
+        """
         self._timings[stage] = elapsed_ms
+
+    def get(self, stage: str) -> int:
+        """Returns the recorded timing for a stage, or 0 if not recorded.
+
+        Args:
+            stage: Stage name.
+
+        Returns:
+            Recorded elapsed milliseconds, or 0.
+        """
+        return self._timings.get(stage, 0)
 
     def record_tokens(self, prompt: int, completion: int) -> None:
         """Aggregates token usage for the round."""

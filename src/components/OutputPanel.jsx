@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import {
   Brain, Code2, Activity, ChevronDown, ChevronUp,
-  CheckCircle2, Loader2, Clock, Lightbulb
+  CheckCircle2, Loader2, Clock, Lightbulb, ImageIcon, Download,
 } from 'lucide-react'
 import { CodeBlock } from './CodeBlock'
 
@@ -50,6 +50,94 @@ function Skeleton() {
           style={{ width: `${w}%`, animationDelay: `${i * 0.1}s` }}
         />
       ))}
+    </div>
+  )
+}
+
+// ─── Artifacts Panel ─────────────────────────────────────────────────────────
+/**
+ * Renders base64-encoded artifact files emitted by the DS-STAR agent.
+ * Visualization tasks produce PNG/JPG files; wrangling tasks produce CSVs.
+ */
+function ArtifactsPanel({ artifacts }) {
+  if (!artifacts || artifacts.length === 0) return null
+
+  const images = artifacts.filter(a =>
+    a.mime_type?.startsWith('image/') || a.name?.match(/\.(png|jpg|jpeg|svg)$/i)
+  )
+  const downloads = artifacts.filter(a => !images.includes(a))
+
+  return (
+    <div className="glass-card shadow-sm overflow-hidden animate-slide-up bg-white" style={{ animationDelay: '0.05s' }}>
+      <div className="flex items-center gap-3 px-5 py-4 border-b border-slate-100">
+        <div className="w-8 h-8 rounded-lg bg-amber-50 border border-amber-100 flex items-center justify-center shadow-sm">
+          <ImageIcon size={16} className="text-amber-600" />
+        </div>
+        <div>
+          <p className="text-sm font-bold text-slate-800">Generated Artifacts</p>
+          <p className="text-[11px] text-slate-500 font-medium">
+            {artifacts.length} file{artifacts.length !== 1 ? 's' : ''} produced by the agent
+          </p>
+        </div>
+      </div>
+
+      <div className="px-5 py-4 space-y-4">
+        {/* Image artifacts rendered inline */}
+        {images.length > 0 && (
+          <div className="grid gap-4">
+            {images.map((artifact, idx) => (
+              <div
+                key={`img-${idx}`}
+                id={`artifact-image-${idx}`}
+                className="border border-slate-200 rounded-xl overflow-hidden shadow-sm"
+              >
+                <div className="flex items-center justify-between px-3 py-2 bg-slate-50 border-b border-slate-100">
+                  <span className="text-[11px] font-semibold text-slate-600 truncate">
+                    {artifact.name}
+                  </span>
+                  <a
+                    href={`data:${artifact.mime_type};base64,${artifact.data}`}
+                    download={artifact.name}
+                    className="flex items-center gap-1 text-[10px] text-brand-600 hover:text-brand-800 font-semibold"
+                    aria-label={`Download ${artifact.name}`}
+                  >
+                    <Download size={11} />
+                    Download
+                  </a>
+                </div>
+                <img
+                  src={`data:${artifact.mime_type};base64,${artifact.data}`}
+                  alt={artifact.name}
+                  className="w-full object-contain max-h-[500px] bg-white"
+                />
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Non-image artifacts as download links */}
+        {downloads.length > 0 && (
+          <div className="space-y-2">
+            {downloads.map((artifact, idx) => (
+              <a
+                key={`dl-${idx}`}
+                id={`artifact-download-${idx}`}
+                href={`data:${artifact.mime_type};base64,${artifact.data}`}
+                download={artifact.name}
+                className="flex items-center gap-3 px-4 py-3 rounded-xl border border-slate-200 bg-slate-50
+                           hover:bg-brand-50 hover:border-brand-200 transition-colors group"
+                aria-label={`Download artifact ${artifact.name}`}
+              >
+                <Download size={14} className="text-slate-400 group-hover:text-brand-600 shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-[12px] font-semibold text-slate-700 truncate">{artifact.name}</p>
+                  <p className="text-[10px] text-slate-400">{artifact.mime_type}</p>
+                </div>
+              </a>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   )
 }
@@ -187,7 +275,13 @@ function GeneratedCodePanel({ codeByTab, isLoading, collapsed, onToggle }) {
 }
 
 // ─── Main OutputPanel ─────────────────────────────────────────────────────────
-export function OutputPanel({ output, status }) {
+/**
+ * @param {object} props
+ * @param {object} props.output      — Result payload from the agent
+ * @param {string} props.status      — 'idle' | 'processing' | 'completed'
+ * @param {Array}  props.artifacts   — Array of artifact objects {name, data, mime_type}
+ */
+export function OutputPanel({ output, status, artifacts = [] }) {
   const [insightsCollapsed, setInsightsCollapsed] = useState(false)
   const [codeCollapsed, setCodeCollapsed] = useState(false)
 
@@ -203,6 +297,9 @@ export function OutputPanel({ output, status }) {
         </div>
         <StatusPanel status={status} />
       </div>
+
+      {/* Artifact images — rendered as soon as they arrive during streaming */}
+      <ArtifactsPanel artifacts={artifacts} />
 
       {/* Output sections */}
       <InsightsPanel

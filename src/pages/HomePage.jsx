@@ -13,6 +13,7 @@ export function HomePage() {
   const {
     files,
     pendingDuplicates,
+    sessionId,
     handleAddFiles,
     handleConfirmDuplicates,
     handleRemoveFile,
@@ -42,7 +43,7 @@ export function HomePage() {
     totalRunMs,
     complexity,
     showMetrics,
-  } = useAgentRun(files)
+  } = useAgentRun(files, sessionId)
 
   const isProcessing = !['idle', 'completed', 'failed'].includes(agentStatus)
 
@@ -92,6 +93,13 @@ export function HomePage() {
               Agent Mode
             </div>
 
+            <AgentSettings
+              settings={settings}
+              onChange={setSettings}
+              disabled={isProcessing}
+              placement="header"
+            />
+
             <a
               href="https://github.com"
               target="_blank"
@@ -126,19 +134,11 @@ export function HomePage() {
           {/* Query input */}
           <div className="glass-card-elevated p-5 shrink-0">
             <QueryInput
-              onSubmit={handleSubmit}
+              onSubmit={(query) => handleSubmit(query, sessionId)}
               isProcessing={isProcessing}
               fileCount={files.filter((f) => f.progress === 100).length}
               placeholder="Ask DS-STAR anything about your data…"
             />
-            {/* ── Settings Drawer ── */}
-            <div className="mt-4">
-              <AgentSettings
-                settings={settings}
-                onChange={setSettings}
-                disabled={isProcessing}
-              />
-            </div>
           </div>
 
           {/* Output area */}

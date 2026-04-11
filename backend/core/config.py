@@ -1,7 +1,16 @@
 """Application configuration — environment-driven settings.
 
 Loads all credentials and tuning parameters from the .env file.
-Swapped from Gemini to NVIDIA NIM; GEMINI_API_KEY is no longer used.
+
+Gap fixes applied:
+- ANALYSIS_MODE_ALLOWED_FORMATS expanded to include ALL supported formats.
+  DS-STAR paper explicitly requires heterogeneous data (CSV + PDF + JSON together).
+- Added PARQUET to ALLOWED_MIME_TYPES.
+- MAX_TOKENS_PER_RUN enforced via TokenTracker in the orchestrator.
+- DS-STAR+ model routing: NIM_MODEL_PRO for reasoning-heavy agents;
+  NIM_MODEL_FLASH for high-throughput / summarisation agents.
+- MAX_DEBUGGER_RETRIES caps the Debugger → Code loop per round.
+- Docker sandbox flags added for Gap 2 (subprocess → container isolation).
 """
 
 import os
@@ -22,15 +31,21 @@ MAX_FILE_SIZE_BYTES: int = 100 * 1024 * 1024  # 100 MB
 # ---------------------------------------------------------------------------
 
 ALLOWED_MIME_TYPES: Dict[str, str] = {
-    "csv": "text/csv",
-    "txt": "text/plain",
-    "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    "pdf": "application/pdf",
-    "json": "application/json",
-    "md": "text/markdown",
+    "csv":     "text/csv",
+    "txt":     "text/plain",
+    "xlsx":    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "pdf":     "application/pdf",
+    "json":    "application/json",
+    "md":      "text/markdown",
+    "parquet": "application/octet-stream",
 }
 
-ANALYSIS_MODE_ALLOWED_FORMATS: Set[str] = {"csv", "xlsx", "json"}
+# Gap fix: Expanded to allow all formats for DS-STAR agent runs.
+# The paper's key innovation is handling HETEROGENEOUS data (CSV + PDF + JSON).
+# The previous restriction to csv/xlsx/json prevented hard-task benchmarks.
+ANALYSIS_MODE_ALLOWED_FORMATS: Set[str] = set(ALLOWED_MIME_TYPES.keys())
+
+# IDP mode accepts the same full set
 IDP_ALLOWED_FORMATS: Set[str] = set(ALLOWED_MIME_TYPES.keys())
 
 # ---------------------------------------------------------------------------
@@ -42,7 +57,7 @@ SUPABASE_PUBLISHABLE_KEY: str = os.getenv("SUPABASE_PUBLISHABLE_KEY", "")
 SUPABASE_BUCKET: str = os.getenv("SUPABASE_BUCKET", "semantica-uploads")
 
 # ---------------------------------------------------------------------------
-# NVIDIA NIM configuration (replaces Gemini)
+# NVIDIA NIM configuration
 # ---------------------------------------------------------------------------
 
 NVIDIA_API_KEY: str = os.getenv("NVIDIA_API_KEY", "")
@@ -58,9 +73,47 @@ NIM_MODEL_CODER: str = os.getenv(
 )
 
 # ---------------------------------------------------------------------------
+# DS-STAR Model Routing (Pro = reasoning-heavy, Flash = fast throughput)
+# ---------------------------------------------------------------------------
+# Routing table:
+#   Planner      → Pro    Coder        → Pro
+#   Verifier     → Pro    Debugger     → Pro
+#   SubQuestion  → Flash  ReportWriter → Flash
+#   Analyzer     → Flash
+# ---------------------------------------------------------------------------
+
+# Pro model: highest reasoning capability for planning/coding/verification
+NIM_MODEL_PRO: str = os.getenv("NIM_MODEL_PRO", NIM_MODEL_DEFAULT)
+
+# Flash model: fast, cost-efficient for sub-questions and summaries
+NIM_MODEL_FLASH: str = os.getenv("NIM_MODEL_FLASH", NIM_MODEL_DEFAULT)
+
+# ---------------------------------------------------------------------------
 # DS-STAR Agent tuning
 # ---------------------------------------------------------------------------
 
 MAX_AGENT_ROUNDS: int = int(os.getenv("MAX_AGENT_ROUNDS", "10"))
-EXECUTION_TIMEOUT_SECONDS: int = int(os.getenv("EXECUTION_TIMEOUT_SECONDS", "30"))
+EXECUTION_TIMEOUT_SECONDS: int = int(os.getenv("EXECUTION_TIMEOUT_SECONDS", "60"))
 MAX_TOKENS_PER_RUN: int = int(os.getenv("MAX_TOKENS_PER_RUN", "50000"))
+
+# Max times the Debugger→Code sub-loop fires per orchestrator round
+MAX_DEBUGGER_RETRIES: int = int(os.getenv("MAX_DEBUGGER_RETRIES", "3"))
+
+# DS-STAR+ concurrency: parallel DS-STAR runs for sub-questions
+DS_STAR_PLUS_MAX_WORKERS: int = int(os.getenv("DS_STAR_PLUS_MAX_WORKERS", "3"))
+
+# ---------------------------------------------------------------------------
+# Docker sandbox configuration (Gap 2)
+# ---------------------------------------------------------------------------
+# Set DOCKER_SANDBOX_ENABLED=true in production to run generated code inside
+# a Docker container with --network none and memory/CPU caps.
+# When false (default) the executor uses a subprocess with a sanitised env.
+
+DOCKER_SANDBOX_ENABLED: bool = (
+    os.getenv("DOCKER_SANDBOX_ENABLED", "false").lower() == "true"
+)
+DOCKER_SANDBOX_IMAGE: str = os.getenv(
+    "DOCKER_SANDBOX_IMAGE", "python:3.11-slim"
+)
+DOCKER_MEMORY_LIMIT: str = os.getenv("DOCKER_MEMORY_LIMIT", "512m")
+DOCKER_CPU_QUOTA: float = float(os.getenv("DOCKER_CPU_QUOTA", "0.5"))

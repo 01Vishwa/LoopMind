@@ -2,11 +2,15 @@
 
 Encapsulates the file-write logic for in-memory processing,
 performing chunked streaming reads with mid-stream size validation.
+
+Session isolation fix: _FILE_CACHE is now a two-level dict keyed by
+session_id → filename → bytes.  All public functions accept a
+``session_id`` parameter (default ``"__anon__"``) so that concurrent
+users with identically-named files never overwrite each other's data.
 """
 
-import os
 import logging
-from typing import Tuple, Optional, Dict
+from typing import Dict, Optional, Tuple
 
 from fastapi import UploadFile
 
@@ -14,16 +18,23 @@ from core.validation import validate_file_size
 
 logger = logging.getLogger("uvicorn.info")
 
+_ANON_SESSION = "__anon__"
 
-# Global in-memory cache to replace disk storage
-_FILE_CACHE: Dict[str, bytes] = {}
+# Two-level in-memory cache: {session_id → {filename → bytes}}
+# Never access this dict directly from outside this module.
+_FILE_CACHE: Dict[str, Dict[str, bytes]] = {}
 
 
-async def save_upload_file(file: UploadFile) -> Tuple[int, str]:
-    """Streams a single UploadFile into memory with mid-stream size checks.
+async def save_upload_file(
+    file: UploadFile,
+    session_id: str = _ANON_SESSION,
+) -> Tuple[int, str]:
+    """Streams a single UploadFile into the session-scoped cache.
 
     Args:
-        file (UploadFile): The incoming multipart file payload.
+        file: The incoming multipart file payload.
+        session_id: Caller's session identifier.  Defaults to the shared
+            anonymous bucket when no session is provided.
 
     Returns:
         Tuple[int, str]: Bytes read and an in-memory status string.
@@ -43,28 +54,61 @@ async def save_upload_file(file: UploadFile) -> Tuple[int, str]:
 
         content_chunks.append(chunk)
 
-    # Store fully in memory
-    _FILE_CACHE[file.filename] = b"".join(content_chunks)
+    # Store in the session bucket — never touching other sessions
+    _FILE_CACHE.setdefault(session_id, {})[file.filename] = b"".join(content_chunks)
 
     file_format = (
-        file.filename.rsplit('.', 1)[-1].lower()
-        if file.filename and '.' in file.filename
+        file.filename.rsplit(".", 1)[-1].lower()
+        if file.filename and "." in file.filename
         else "unknown"
     )
     logger.info(
-        "Uploaded File Metadata - Name: %s, Format: %s",
+        "Uploaded File Metadata - Name: %s, Format: %s, Session: %s",
         file.filename,
         file_format,
+        session_id,
     )
 
     return bytes_read, "Stored in memory"
 
 
-def get_file_content(filename: str) -> Optional[bytes]:
-    """Retrieves cached file bytes from the in-memory store."""
-    return _FILE_CACHE.get(filename)
+def get_file_content(
+    filename: str,
+    session_id: str = _ANON_SESSION,
+) -> Optional[bytes]:
+    """Retrieves cached file bytes for the given session.
+
+    Args:
+        filename: Name of the file to retrieve.
+        session_id: Session that owns the file.
+
+    Returns:
+        Raw bytes if found, else None.
+    """
+    return _FILE_CACHE.get(session_id, {}).get(filename)
 
 
-def clear_file_cache() -> None:
-    """Empties the file representation dictionary."""
-    _FILE_CACHE.clear()
+def get_session_files(session_id: str = _ANON_SESSION) -> Dict[str, bytes]:
+    """Returns a snapshot of all file bytes belonging to a session.
+
+    The returned dict is a shallow copy — safe to iterate without
+    holding a lock even if another request uploads concurrently.
+
+    Args:
+        session_id: Session whose files to retrieve.
+
+    Returns:
+        Dict mapping filename → bytes for the session.
+    """
+    return dict(_FILE_CACHE.get(session_id, {}))
+
+
+def clear_file_cache(session_id: str = _ANON_SESSION) -> None:
+    """Removes all cached files for the given session.
+
+    Args:
+        session_id: Session to wipe.  Only that session's data is removed;
+            other sessions are unaffected.
+    """
+    _FILE_CACHE.pop(session_id, None)
+    logger.info("[UploadService] Cleared file cache for session: %s", session_id)

@@ -1,0 +1,37 @@
+# Dockerfile.sandbox — Semantica Code Execution Sandbox
+#
+# Pre-built image for running DS-STAR generated Python scripts in isolation.
+# Activated by setting DOCKER_SANDBOX_ENABLED=true and DOCKER_SANDBOX_IMAGE
+# to the tag you build this image as (e.g. semantica-sandbox:latest).
+#
+# Build:
+#   docker build -f Dockerfile.sandbox -t semantica-sandbox:latest .
+#
+# The container is always started with:
+#   --network none     (no outbound internet)
+#   --memory <limit>   (from DOCKER_MEMORY_LIMIT, default 512m)
+#   --cpus <quota>     (from DOCKER_CPU_QUOTA, default 0.5)
+#   --rm               (auto-removed after execution)
+
+FROM python:3.11-slim
+
+# Install common data science packages used by AI-generated scripts.
+# These mirror the packages available in the parent FastAPI environment.
+RUN pip install --no-cache-dir \
+    pandas==2.2.3 \
+    numpy \
+    matplotlib \
+    seaborn \
+    scikit-learn \
+    pyarrow \
+    openpyxl \
+    scipy \
+    statsmodels \
+    joblib
+
+# Non-root user for defence-in-depth: even if a script escapes the container,
+# it runs as an unprivileged user with no write access outside /workspace.
+RUN useradd -m -u 1000 sandbox
+USER sandbox
+
+WORKDIR /workspace

@@ -2,7 +2,7 @@ import React, { useRef, useEffect, useState } from 'react'
 import {
   Brain, Terminal, GitBranch, Layers, RefreshCw,
   ChevronDown, ChevronUp, Cpu, CheckCircle2, XCircle,
-  Loader2, Sparkles, Image, FileText,
+  Loader2, Sparkles, Image, FileText, Bug, FileCheck, Network, Activity, Edit3, LayoutList
 } from 'lucide-react'
 import { PlanStepList } from './PlanStepList'
 import { CodeBlock } from './CodeBlock'
@@ -19,6 +19,11 @@ const PHASE_META = {
   routing:    { label: 'Routing',    cls: 'phase-routing',    icon: RefreshCw },
   completed:  { label: 'Completed',  cls: 'phase-completed',  icon: Sparkles },
   error:      { label: 'Error',      cls: 'phase-error',      icon: XCircle },
+  debugging:  { label: 'Debugging',  cls: 'phase-coding',     icon: Bug },
+  finalizing: { label: 'Finalizing', cls: 'phase-routing',    icon: FileCheck },
+  generating_subquestions: { label: 'Decomposing', cls: 'phase-analyzing', icon: Network },
+  running_subquestions:    { label: 'Parallel Research', cls: 'phase-executing', icon: Activity },
+  writing_report:          { label: 'Writing Report', cls: 'phase-coding', icon: Edit3 },
 }
 
 const isActive = (s) => !['idle', 'completed', 'failed', 'error'].includes(s)
@@ -212,6 +217,118 @@ function ArtifactGallery({ artifacts, collapsed, onToggle }) {
   )
 }
 
+// ─── Sub-Questions List ───────────────────────────────────────────────────────
+function SubQuestionsList({ questions }) {
+  if (!questions || questions.length === 0) return null
+  return (
+    <div className="space-y-2">
+      {questions.map((q, i) => {
+        let statusIcon
+        let statusCls = ''
+        switch (q.status) {
+          case 'pending':
+            statusIcon = <div className="w-1.5 h-1.5 rounded-full bg-slate-300" />
+            break
+          case 'running':
+            statusIcon = <Loader2 size={12} className="animate-spin text-brand-500" />
+            statusCls = 'border-brand-200 bg-brand-50 shadow-sm'
+            break
+          case 'completed':
+            statusIcon = <CheckCircle2 size={13} className="text-emerald-500" />
+            statusCls = 'bg-emerald-50/50 border-emerald-100'
+            break
+          default: // failed or max_rounds_reached
+            statusIcon = <XCircle size={13} className="text-amber-500" />
+            statusCls = 'bg-amber-50/50 border-amber-100'
+            break
+        }
+
+        return (
+          <div key={i} className={`flex items-start gap-3 p-3 rounded-lg border border-slate-100 bg-white transition-colors ${statusCls}`}>
+            <div className="mt-0.5 shrink-0 w-4 flex items-center justify-center">
+              {statusIcon}
+            </div>
+            <div className="flex-1">
+              <p className="text-[13px] text-slate-700 font-medium leading-relaxed">{q.question}</p>
+              <div className="mt-1 flex items-center gap-2 text-[11px] font-semibold tracking-wider uppercase">
+                <span className="text-slate-400">Sub-Question {i + 1}</span>
+                {q.status !== 'pending' && <span className="opacity-50">·</span>}
+                {q.status === 'running' && <span className="text-brand-600">Running</span>}
+                {q.status === 'completed' && <span className="text-emerald-600">Completed</span>}
+                {(q.status !== 'pending' && q.status !== 'running' && q.status !== 'completed') && (
+                  <span className="text-amber-600">{q.status.replace(/_/g, ' ')}</span>
+                )}
+              </div>
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+// ─── Research Report View ─────────────────────────────────────────────────────
+function ResearchReportView({ report }) {
+  if (!report) return null
+  return (
+    <div className="space-y-6">
+      <div className="pb-4 border-b border-slate-100">
+        <h2 className="text-lg font-bold text-slate-800 mb-2">{report.title}</h2>
+        <p className="text-[13px] text-slate-600 leading-relaxed font-medium">
+          {report.executive_summary}
+        </p>
+      </div>
+      
+      {report.key_findings?.length > 0 && (
+        <div>
+          <h3 className="text-sm font-bold text-slate-800 mb-3 flex items-center gap-2">
+            <Sparkles size={14} className="text-brand-500" />
+            Key Findings
+          </h3>
+          <ul className="space-y-2">
+            {report.key_findings.map((finding, i) => (
+              <li key={i} className="flex items-start gap-2 text-[13px] text-slate-600">
+                <span className="w-1.5 h-1.5 rounded-full bg-brand-500 shrink-0 mt-1.5" />
+                <span className="leading-relaxed">{finding}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {report.report_body && (
+        <div className="prose prose-sm max-w-none text-slate-700">
+          <React.Fragment>
+            {report.report_body.split('\n\n').map((paragraph, i) => (
+               <p key={i} className="text-[13px] leading-relaxed mb-4">{paragraph}</p>
+            ))}
+          </React.Fragment>
+        </div>
+      )}
+
+      {report.caveats?.length > 0 && (
+        <div className="bg-amber-50 rounded-xl p-4 border border-amber-100">
+          <h3 className="text-[12px] font-bold text-amber-800 uppercase tracking-wider mb-2 flex items-center gap-2">
+            <XCircle size={12} className="text-amber-500" />
+            Caveats & Limitations
+          </h3>
+          <ul className="space-y-1.5 list-disc pl-4">
+            {report.caveats.map((cav, i) => (
+              <li key={i} className="text-[12px] text-amber-700/80">{cav}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+      
+      {report.total_ms > 0 && (
+        <div className="pt-2 text-right text-[11px] text-slate-400 font-mono">
+          Research generated in {Math.round(report.total_ms / 1000)}s
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Main Component ──────────────────────────────────────────────────────────
 export function AgentProgressPanel({
   phase,
@@ -230,12 +347,17 @@ export function AgentProgressPanel({
   totalRunMs,
   complexity,
   showMetrics,
+  // Deep Research mode props
+  isResearchMode,
+  subQuestions,
+  researchReport,
 }) {
   const [planCollapsed, setPlanCollapsed] = useState(false)
   const [logsCollapsed, setLogsCollapsed] = useState(false)
   const [codeCollapsed, setCodeCollapsed] = useState(false)
   const [artifactsCollapsed, setArtifactsCollapsed] = useState(false)
   const [insightsCollapsed, setInsightsCollapsed] = useState(false)
+  const [reportCollapsed, setReportCollapsed] = useState(false)
 
   const busy   = isActive(agentStatus)
   const done   = agentStatus === 'completed'
@@ -273,7 +395,75 @@ export function AgentProgressPanel({
         )}
       </div>
 
-      {/* ── Plan Steps ─────────────────────────────────────────────────── */}
+      {/* ── Deep Research View ─────────────────────────────────────────── */}
+      {isResearchMode ? (
+        <>
+          {subQuestions.length > 0 && (
+            <div className="glass-card-elevated overflow-hidden">
+              <button
+                onClick={() => setPlanCollapsed((c) => !c)}
+                className="w-full flex items-center justify-between px-5 py-4
+                           hover:bg-slate-50 transition-colors"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-7 h-7 rounded-lg bg-indigo-50 border border-indigo-100
+                                  flex items-center justify-center">
+                    <LayoutList size={14} className="text-indigo-600" />
+                  </div>
+                  <div className="text-left">
+                    <p className="text-[13px] font-bold text-slate-800">Sub-Questions</p>
+                    <p className="text-[11px] text-slate-500 font-medium">
+                      {subQuestions.length} concurrent research threads
+                    </p>
+                  </div>
+                </div>
+                <div className="w-6 h-6 flex items-center justify-center rounded-full
+                                bg-slate-50 border border-slate-200 text-slate-400">
+                  {planCollapsed ? <ChevronDown size={13} /> : <ChevronUp size={13} />}
+                </div>
+              </button>
+              {!planCollapsed && (
+                <div className="px-5 pb-5 border-t border-slate-100 pt-4 animate-fade-in">
+                  <SubQuestionsList questions={subQuestions} />
+                </div>
+              )}
+            </div>
+          )}
+
+          {researchReport && (
+            <div className="glass-card-elevated overflow-hidden animate-slide-up">
+              <button
+                onClick={() => setReportCollapsed((c) => !c)}
+                className="w-full flex items-center justify-between px-5 py-4
+                           hover:bg-slate-50 transition-colors"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-7 h-7 rounded-lg bg-brand-50 border border-brand-100
+                                  flex items-center justify-center">
+                    <Sparkles size={14} className="text-brand-600" />
+                  </div>
+                  <div className="text-left">
+                    <p className="text-[13px] font-bold text-slate-800">Research Report</p>
+                    <p className="text-[11px] text-slate-500 font-medium">
+                      Finalized comprehensive overview
+                    </p>
+                  </div>
+                </div>
+                <div className="w-6 h-6 flex items-center justify-center rounded-full
+                                bg-slate-50 border border-slate-200 text-slate-400">
+                  {reportCollapsed ? <ChevronDown size={13} /> : <ChevronUp size={13} />}
+                </div>
+              </button>
+              {!reportCollapsed && (
+                <div className="px-5 pb-5 border-t border-slate-100 pt-4 animate-fade-in">
+                  <ResearchReportView report={researchReport} />
+                </div>
+              )}
+            </div>
+          )}
+        </>
+      ) : (
+      /* ── Standard Mode Plan Steps ────────────────────────────────────── */
       <div className="glass-card-elevated overflow-hidden">
         <button
           onClick={() => setPlanCollapsed((c) => !c)}
@@ -305,6 +495,7 @@ export function AgentProgressPanel({
           </div>
         )}
       </div>
+      )}
 
       {/* ── Verifier Card ─────────────────────────────────────────────── */}
       {verifierFeedback && (
@@ -347,8 +538,8 @@ export function AgentProgressPanel({
         )}
       </div>
 
-      {/* ── Generated Code ────────────────────────────────────────────── */}
-      {currentCode && (
+      {/* ── Generated Code (Hidden in Research Mode) ──────────────────── */}
+      {!isResearchMode && currentCode && (
         <div className="glass-card-elevated overflow-hidden animate-slide-up">
           <button
             onClick={() => setCodeCollapsed((c) => !c)}
@@ -391,8 +582,8 @@ export function AgentProgressPanel({
         onToggle={() => setArtifactsCollapsed(!artifactsCollapsed)}
       />
 
-      {/* ── Final Insights (only when completed) ────────────────────── */}
-      {done && output?.insights && (
+      {/* ── Final Insights (only when completed, hidden in research mode) */}
+      {!isResearchMode && done && output?.insights && (
         <div className="glass-card-elevated overflow-hidden animate-slide-up">
           <button
             onClick={() => setInsightsCollapsed((c) => !c)}
