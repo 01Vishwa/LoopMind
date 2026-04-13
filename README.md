@@ -117,12 +117,20 @@ Core API endpoints ensuring communication between client and AI engine:
 
 ## 🤖 Agent Workflow Explanation
 
-LoopMind follows a deterministic AI execution sequence:
-1. **File Analyzer**: Normalizes ingested documents into raw data schemas.
-2. **Planner**: Transforms user intents into actionable, modular steps.
-3. **Coder**: Emits valid executable code targeting requested visualizations or data outputs.
-4. **Executor**: Evaluates output securely.
-5. **Verifier & Router**: Evaluates execution outputs against requirements and gracefully re-runs or repairs defects up to 3 rounds.
+LoopMind relies on the **DS-STAR Orchestrator** pattern, dividing complex reasoning tasks into specialized autonomous nodes. 
+For a comprehensive architectural breakdown and workflow diagram, read the complete [Agent Framework Documentation](docs/agent_framework.md). 
+
+Core agents in the LoopMind framework include:
+1. **[File Analyzer](docs/file_analyzer_agent.md)**: Normalizes incoming unstructured datastores into context schemas.
+2. **[Retriever](docs/retriever.md)**: Filters massive documents out of context using local `sentence-transformers`.
+3. **[Planner](docs/planner_agent.md)**: Transforms user intents into actionable, 12-step mutable logic plans.
+4. **[Coder](docs/coder_agent.md)**: Translates plan steps into self-contained, valid Python code chunks.
+5. **[Code Executor](docs/code_executor.md)**: Secures runtime evaluation of generated analytics safely in an isolated Docker sandbox.
+6. **[Debugger](docs/debugger_agent.md)**: Reacts to code execution tracebacks and surgically corrects localized Python blocks.
+7. **[Verifier](docs/verifier_agent.md) & [Router](docs/router_agent.md)**: Evaluates execution results against limits, gracefully rewiring failed path branches for Planner retries.
+8. **[Finalizer](docs/finalizer_agent.md)**: Transforms successful console execution output and charts into clean, conversational Markdown responses.
+
+*For advanced multi-threaded `DS-STAR+` operations handling decomposed multi-query workflows, the loop utilizes the **[SubQuestionGeneratorAgent](docs/subquestion_generator_agent.md)** and **[ReportWriterAgent](docs/report_writer_agent.md)***.
 
 ## 🚀 Quick Start
 

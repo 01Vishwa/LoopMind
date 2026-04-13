@@ -1,52 +1,62 @@
 # DS-STAR Agent Framework
 
-The structural advantage of LoopMind relies entirely on its specialized agent methodology. We call this the **DS-STAR (Data Science - Self-Taught Agent with Reasoning)** Orchestrator. 
+## Definition of an Agent
+In the LoopMind codebase, an **agent** refers to an autonomous processing node dedicated to a specific logical phase of the Data Science lifecycle. Functionally, agents are instances that wrap LLM API calls (using specific NVIDIA NIM tier configurations such as `NIM_MODEL_PRO` or `NIM_MODEL_FLASH`) inside rigorous Pydantic-enforced generation loops (`.with_structured_output()`). This strict schema compliance ensures reliable hand-offs between separate nodes governed by the `DsStarOrchestrator`. Each agent acts in isolation, evaluating state context or telemetry (such as stack tracebacks from the execution sandbox) to execute distinct programmatic tasks.
 
-It handles complex multi-step logical operations through an iterative **Plan → Code → Execute → Verify → Route** cycle.
+## Agents List
+The LoopMind orchestration relies on the following dedicated agents. Click the hyperlinks for detailed descriptions of each agent's active model, local tools, orchestration function, and deployment patterns strictly relevant to this codebase.
 
-## Execution Lifecycle
+* **[FileAnalyzerAgent](./file_analyzer_agent.md)** - Translates unstructured datastores into schema and analytical contexts to be ingested by the system.
+* **[Retriever](./retriever.md)** - Intercepts massive corpora using local `sentence-transformers` vector math to gate and filter irrelevant files out of context bounds.
+* **[PlannerAgent](./planner_agent.md)** - Consumes processed data and constructs mutable, 12-step logical mappings bridging a query with runtime resolution.
+* **[CoderAgent](./coder_agent.md)** - Evaluates logic branches against the environment bounds and emits runnable, accumulative Python scripts natively. 
+* **[CodeExecutor](./code_executor.md)** - Technically an LLM-free node representing the isolated Docker or subprocess sandboxing environment that executes scripts and extracts artifacts.
+* **[DebuggerAgent](./debugger_agent.md)** - Targets execution tracebacks natively and applies surgical fixes locally to the running block without erasing broader working patterns.
+* **[VerifierAgent](./verifier_agent.md)** - Compares evaluated output bounds mechanically against initial planner intent to pass or flag execution outputs.
+* **[RouterAgent](./router_agent.md)** - Corrects failed pipeline branches by instructing the Planner to Add, Fix, or Prune erroneous steps.
+* **[FinalizerAgent](./finalizer_agent.md)** - Converts unstructured terminal output success states into cleanly formatted user-facing summaries.
+* **[SubQuestionGeneratorAgent](./subquestion_generator_agent.md)** - Exclusive to `DS-STAR+` operation modes. Maps complex instructions to atomic multi-step execution graphs.
+* **[ReportWriterAgent](./report_writer_agent.md)** - The final synthesis phase of `DS-STAR+`. Condenses concurrent parallel multi-agent trees into cohesive citation-backed documents.
 
-The DS-STAR loop is managed by `DsStarOrchestrator`. It initiates concurrent streams mapping agent progress to frontend consumers while handling asynchronous wait/retry logic behind the scenes using `tenacity`.
+## Agent Workflow Architecture
+The core system leverages nested cyclic reasoning and sandbox executions mapping the pipeline lifecycle below:
 
-```text
-[User Prompt] -> Planner -> Coder -> Docker Sandbox -> Verifier -> [Pass] -> Output
-                                                                -> [Fail] -> Router -> Planner (Retry)
+```mermaid
+flowchart TD
+    %% Inputs definition
+    Data[(Data Sources)] --> FA[FileAnalyzerAgent]
+    Data --> Ret[Retriever]
+    Ret -. "Filters Top-K Files" .-> FA
+    FA --> Ctx[Combined Data Context]
+
+    Query[User Query] --> SubQ[SubQuestionGeneratorAgent\n*DS-STAR+ Mode*]
+    Query -- "Direct Entry (Standard Mode)" --> Planner[PlannerAgent]
+    SubQ -- "Decomposes into N Queries\n(Running Parallel Loops)" --> Planner
+    
+    Ctx --> Planner
+
+    %% Engine Cycle
+    subgraph "DS-STAR Orchestrator Execution Loop"
+      Planner -- "Yields JSON Plan" --> Coder[CoderAgent]
+      Coder -- "Yields Raw Python" --> Sandbox[CodeExecutor\nSandbox Environment]
+      
+      Sandbox -- "Raises Traceback" --> Debugger[DebuggerAgent]
+      Debugger -- "Corrects Broken Line" --> Sandbox
+      
+      Sandbox -- "Executes Command Successfully" --> Verifier[VerifierAgent]
+      
+      Verifier -- "Fails Constraint Check" --> Router[RouterAgent]
+      Router -- "Identifies Fault (Add/Fix/Remove)" --> Planner
+    end
+
+    %% Exits
+    Verifier -- "Passes Quality Assesment" --> Finalizer[FinalizerAgent]
+    
+    %% Output Handling
+    Finalizer -- "Standard Execution" --> UserOut[Standard Formatted Output]
+    Finalizer -- "Parallel DS-STAR+ Streams" --> Writer[ReportWriterAgent]
+    Writer --> MultiOutput[Aggregate Markdown Report]
+    
+    classDef agent fill:#f9f9f9,stroke:#333,stroke-width:2px;
+    class FA,Planner,Coder,Sandbox,Debugger,Verifier,Router,Finalizer,SubQ,Writer,Ret agent;
 ```
-
-## Agent Responsibilities
-
-### 1. FileAnalyzerAgent
-- **Purpose**: Consumes and interprets incoming unstructured datastores.
-- **Core Function**: Extracts schematic structures, summaries, and logical relationships to append context to the planner.
-- **Output**: Meaningful system context definitions.
-
-### 2. PlannerAgent
-- **Purpose**: Defines an exhaustive multi-step implementation approach.
-- **Core Function**: Evaluates user prompts alongside the environment contexts to describe exact sequential computations, libraries, and logic structures required.
-- **Output**: A declarative JSON/structured plan.
-
-### 3. CoderAgent
-- **Purpose**: Translates the logical plan into functional code.
-- **Core Function**: Contextualizes the generated plan with specific framework capabilities (e.g., Pandas syntax, UI bounds) and generates syntactically valid Python.
-- **Output**: Raw, executable `.py` strings.
-
-### 4. CodeExecutor (Sandbox)
-- **Purpose**: Environment runtime evaluation.
-- **Core Function**: Dispatches the Coder's generated python into a secure, resource-constrained isolated Docker container. Limits external networking requests and halts infinite loops.
-- **Output**: Extracts `stdout`, `stderr`, and specifically captures generated artifacts (e.g., Base64 encoded charts `.png` or tables `.csv`).
-
-### 5. VerifierAgent
-- **Purpose**: Assesses the generated logic map against reality.
-- **Core Function**: Analyzes the original user-intent, the code produced, and the exact sandbox execution `stdout`/`stderr`. Determines if outputs answer the constraints safely.
-- **Output**: Boolean `is_sufficient` state + reasoning string.
-
-### 6. RouterAgent
-- **Purpose**: Error-handling and contextual routing.
-- **Core Function**: Triggered only upon a negative result from the Verifier. Evaluates the discrepancy (e.g., syntax error, logic fault, missed criteria) and re-evaluates the prompt state to send back towards the Planner.
-- **Output**: Specialized error remediation directives.
-
-## Failure Handling (Retry & Routing)
-
-LoopMind agents handle inherent LLM unpredictability via overlapping strategies:
-1. **Tenacity Execution Retries**: Local connectivity, parsing, or strict formatting failures implement immediate exponential backoff retries without triggering full loop restarts.
-2. **Deterministic Routing**: If the sandbox breaks (tracebacks), the Verifier halts it, triggering the Router. The Router implements programmatic `max_rounds` constraints (default: 3) to prevent endless hallucination loops. Upgrades or refines instructions to the Planner to shift strategies.
