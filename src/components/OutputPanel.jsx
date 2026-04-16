@@ -1,9 +1,13 @@
 import React, { useState } from 'react'
+import ReactMarkdown from 'react-markdown'
 import {
   Brain, Code2, Activity, ChevronDown, ChevronUp,
   CheckCircle2, Loader2, Clock, Lightbulb, ImageIcon, Download,
 } from 'lucide-react'
 import { CodeBlock } from './CodeBlock'
+
+// Strip leading markdown/unicode bullet characters so CSS dot + embedded char don't double-up.
+const cleanBullet = (s) => s.replace(/^[•\-\*]\s*/, '').trim()
 
 // ─── Status Panel ────────────────────────────────────────────────────────────
 function StatusPanel({ status }) {
@@ -171,14 +175,22 @@ function InsightsPanel({ insights, isLoading, collapsed, onToggle }) {
           ) : insights ? (
             <div className="space-y-5 text-[13px] text-slate-700 leading-relaxed font-medium">
               {insights.summary && (
-                <p className="p-3 bg-slate-50 border border-slate-100 rounded-xl">{insights.summary}</p>
+                <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl
+                                prose prose-sm max-w-none
+                                prose-headings:text-slate-800 prose-headings:font-bold
+                                prose-headings:mt-3 prose-headings:mb-1
+                                prose-p:text-[13px] prose-p:text-slate-700 prose-p:leading-relaxed prose-p:my-1
+                                prose-li:text-[13px] prose-li:text-slate-600
+                                prose-strong:text-slate-800">
+                  <ReactMarkdown>{insights.summary}</ReactMarkdown>
+                </div>
               )}
               {insights.bullets?.length > 0 && (
                 <ul className="space-y-2.5 px-1">
                   {insights.bullets.map((b, i) => (
                     <li key={i} className="flex gap-3 items-start">
-                      <span className="mt-2 w-1.5 h-1.5 rounded-full bg-brand-500 shrink-0 shadow-sm" />
-                      <span>{b}</span>
+                      <span className="mt-[7px] w-1.5 h-1.5 rounded-full bg-brand-500 shrink-0 shadow-sm" />
+                      <span className="leading-relaxed">{cleanBullet(b)}</span>
                     </li>
                   ))}
                 </ul>

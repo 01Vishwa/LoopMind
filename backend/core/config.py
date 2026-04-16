@@ -117,3 +117,11 @@ DOCKER_SANDBOX_IMAGE: str = os.getenv(
 )
 DOCKER_MEMORY_LIMIT: str = os.getenv("DOCKER_MEMORY_LIMIT", "512m")
 DOCKER_CPU_QUOTA: float = float(os.getenv("DOCKER_CPU_QUOTA", "0.5"))
+
+# ---------------------------------------------------------------------------
+# Session context management (ARCH-02)
+# ---------------------------------------------------------------------------
+# TTL after which an idle session context is evicted from memory (seconds)
+SESSION_TTL_SECONDS: int = int(os.getenv("SESSION_TTL_SECONDS", "3600"))
+# Maximum number of concurrent session contexts held in memory
+MAX_SESSIONS: int = int(os.getenv("MAX_SESSIONS", "500"))

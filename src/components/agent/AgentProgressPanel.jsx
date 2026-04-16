@@ -1,4 +1,5 @@
 import React, { useRef, useEffect, useState } from 'react'
+import ReactMarkdown from 'react-markdown'
 import {
   Brain, Terminal, GitBranch, Layers, RefreshCw,
   ChevronDown, ChevronUp, Cpu, CheckCircle2, XCircle,
@@ -7,6 +8,10 @@ import {
 import { PlanStepList } from './PlanStepList'
 import { CodeBlock } from './CodeBlock'
 import { AgentMetricsOverlay } from './AgentMetricsOverlay'
+
+// Strip leading markdown/unicode bullet characters from a string so we don't
+// render a CSS dot AND an embedded '• ' or '* ' simultaneously.
+const cleanBullet = (s) => s.replace(/^[•\-\*]\s*/, '').trim()
 
 // ─── Phase meta ─────────────────────────────────────────────────────────────
 const PHASE_META = {
@@ -608,19 +613,24 @@ export function AgentProgressPanel({
             </div>
           </button>
           {!insightsCollapsed && (
-            <div className="px-5 pb-5 border-t border-slate-100 pt-4 space-y-3 animate-fade-in">
+          <div className="px-5 pb-5 border-t border-slate-100 pt-4 space-y-4 animate-fade-in">
               {output.insights.summary && (
-                <p className="text-[13px] text-slate-700 leading-relaxed font-medium
-                              p-3 bg-slate-50 border border-slate-100 rounded-xl">
-                  {output.insights.summary}
-                </p>
+                <div className="p-4 bg-slate-50 border border-slate-100 rounded-xl
+                                prose prose-sm max-w-none
+                                prose-headings:text-slate-800 prose-headings:font-bold
+                                prose-headings:mt-3 prose-headings:mb-1
+                                prose-p:text-[13px] prose-p:text-slate-700 prose-p:leading-relaxed
+                                prose-li:text-[13px] prose-li:text-slate-600
+                                prose-strong:text-slate-800">
+                  <ReactMarkdown>{output.insights.summary}</ReactMarkdown>
+                </div>
               )}
               {output.insights.bullets?.length > 0 && (
                 <ul className="space-y-2.5 px-1">
                   {output.insights.bullets.map((b, i) => (
                     <li key={i} className="flex gap-3 items-start text-[13px] text-slate-600">
-                      <span className="mt-2 w-1.5 h-1.5 rounded-full bg-brand-500 shrink-0" />
-                      <span>{b}</span>
+                      <span className="mt-[7px] w-1.5 h-1.5 rounded-full bg-brand-500 shrink-0" />
+                      <span className="leading-relaxed">{cleanBullet(b)}</span>
                     </li>
                   ))}
                 </ul>

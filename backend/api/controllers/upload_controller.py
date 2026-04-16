@@ -35,8 +35,8 @@ async def handle_upload(
         if not file.filename:
             continue
 
-        # Extension & MIME validation
-        meta_issue = validate_file_metadata(file)
+        # Extension, MIME & magic-byte validation (MIN-04: now async)
+        meta_issue = await validate_file_metadata(file)
         if meta_issue:
             rejected.append(
                 FileStatusItem(filename=file.filename, status="error", reason=meta_issue)

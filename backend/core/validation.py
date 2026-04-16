@@ -13,12 +13,32 @@ from core.config import (
     ANALYSIS_MODE_ALLOWED_FORMATS,
 )
 
+# ---------------------------------------------------------------------------
+# Magic-byte MIME checker (MIN-04)
+# ---------------------------------------------------------------------------
 
-def validate_file_metadata(
+try:
+    import magic as _magic
+    _MAGIC_AVAILABLE = True
+except ImportError:  # pragma: no cover
+    _MAGIC_AVAILABLE = False
+
+# Bytes to read for magic sniffing (first 2 KB is sufficient for all common types)
+_MAGIC_SNIFF_BYTES = 2048
+
+
+async def validate_file_metadata(
     file: UploadFile,
     analysis_mode: bool = False,
 ) -> str:
-    """Verifies file against extension extraction and declared MIME mapping.
+    """Verifies file against extension, declared MIME, and magic bytes.
+
+    Validation order:
+    1. Extension present and whitelisted.
+    2. Analysis-mode format gate (if enabled).
+    3. Client-declared Content-Type matches extension.
+    4. Magic-byte sniff (if python-magic is installed) to detect spoofed
+       file types (e.g. a Python script uploaded as data.csv).
 
     When ``analysis_mode`` is True the allowed extension set is restricted
     to ``ANALYSIS_MODE_ALLOWED_FORMATS`` (csv, xlsx, json).
@@ -28,8 +48,7 @@ def validate_file_metadata(
         analysis_mode (bool): Whether the analysis_mode switch is ON.
 
     Returns:
-        str: Empty string if valid, otherwise returns string matching the
-        precisely formatted rejection reason to populate the frontend Toast.
+        str: Empty string if valid, otherwise returns the rejection reason.
     """
     filename = file.filename or ""
     if '.' not in filename:
@@ -49,12 +68,34 @@ def validate_file_metadata(
     if ext not in ALLOWED_MIME_TYPES:
         return f"Unsupported format: {ext}"
 
-    # MIME alignment check
+    # MIME alignment check against client-declared Content-Type
     expected_mime = ALLOWED_MIME_TYPES[ext]
     actual_mime = file.content_type
 
     if actual_mime != expected_mime:
         return f"MIME mismatch (Got {actual_mime}, expected {expected_mime})."
+
+    # Magic-byte sniff — detect spoofed Content-Type / extension (MIN-04)
+    if _MAGIC_AVAILABLE:
+        try:
+            header = await file.read(_MAGIC_SNIFF_BYTES)
+            await file.seek(0)  # Reset stream position for downstream parsers
+            detected_mime = _magic.from_buffer(header, mime=True)
+            # Allow a small set of aliases for text-based formats
+            _MIME_ALIASES: dict = {
+                "text/x-csv": "text/csv",
+                "application/x-json": "application/json",
+                "text/x-json": "application/json",
+            }
+            normalised = _MIME_ALIASES.get(detected_mime, detected_mime)
+            if normalised != expected_mime:
+                return (
+                    f"File content does not match declared type. "
+                    f"Expected {expected_mime!r}, detected {detected_mime!r}. "
+                    f"Possible spoofed file extension."
+                )
+        except Exception:  # pylint: disable=broad-except
+            pass  # Magic sniff failure is non-fatal; proceed with header checks
 
     return ""
 

@@ -3,13 +3,21 @@
 Encapsulates all interactions with Supabase Storage and the
 ``uploaded_files`` PostgreSQL table. Exposes a thin, typed API so that
 controllers never import the supabase client directly.
+
+ARCH-03 fix: All functions are now ``async def`` and execute the blocking
+supabase-py calls inside ``asyncio.get_running_loop().run_in_executor(None, ...)``
+so they never block the FastAPI event loop during SSE streaming.
+
+MIN-03 fix: ``upload_to_storage`` return type corrected from ``str`` to
+``Tuple[str, str]`` matching the actual ``(public_url, storage_path)`` tuple.
 """
 
+import asyncio
 import datetime
 import logging
 import os
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from supabase import create_client, Client
 
@@ -48,14 +56,16 @@ def get_supabase_client() -> Client:
 # Storage operations
 # ---------------------------------------------------------------------------
 
-def upload_to_storage(
+async def upload_to_storage(
     filename: str,
     content_bytes: bytes,
     extension: str,
-) -> str:
+) -> Tuple[str, str]:
     """Uploads raw file bytes to Supabase Storage.
 
     Files are stored under a UUID-prefixed path to avoid collisions.
+    Runs the blocking upload in a thread-pool executor to avoid stalling
+    the FastAPI event loop.
 
     Args:
         filename (str): Original filename (used for Content-Type hint).
@@ -63,46 +73,41 @@ def upload_to_storage(
         extension (str): Lowercase file extension (csv | xlsx | json).
 
     Returns:
-        str: Public URL of the uploaded object.
+        Tuple[str, str]: (public_url, storage_path) of the uploaded object.
 
     Raises:
         RuntimeError: If the Supabase Storage upload fails.
     """
-    client = get_supabase_client()
-
     mime_map = {
         "csv": "text/csv",
         "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         "json": "application/json",
     }
-
     storage_path = f"{uuid.uuid4().hex}/{filename}"
 
-    response = client.storage.from_(SUPABASE_BUCKET).upload(
-        path=storage_path,
-        file=content_bytes,
-        file_options={"content-type": mime_map.get(extension, "application/octet-stream")},
-    )
+    def _sync() -> Tuple[str, str]:
+        client = get_supabase_client()
+        response = client.storage.from_(SUPABASE_BUCKET).upload(
+            path=storage_path,
+            file=content_bytes,
+            file_options={"content-type": mime_map.get(extension, "application/octet-stream")},
+        )
+        if hasattr(response, "error") and response.error:
+            raise RuntimeError(f"Storage upload failed: {response.error}")
+        public_url = client.storage.from_(SUPABASE_BUCKET).get_public_url(storage_path)
+        logger.info(
+            "Uploaded to Supabase Storage — path=%s, url=%s", storage_path, public_url
+        )
+        return public_url, storage_path
 
-    if hasattr(response, "error") and response.error:
-        raise RuntimeError(f"Storage upload failed: {response.error}")
-
-    # Build public URL
-    public_url = (
-        client.storage.from_(SUPABASE_BUCKET).get_public_url(storage_path)
-    )
-
-    logger.info(
-        "Uploaded to Supabase Storage — path=%s, url=%s", storage_path, public_url
-    )
-    return public_url, storage_path
+    return await asyncio.get_running_loop().run_in_executor(None, _sync)
 
 
 # ---------------------------------------------------------------------------
 # Database operations
 # ---------------------------------------------------------------------------
 
-def insert_file_record(record: Dict[str, Any]) -> Dict[str, Any]:
+async def insert_file_record(record: Dict[str, Any]) -> Dict[str, Any]:
     """Inserts a file metadata row into the ``uploaded_files`` table.
 
     Args:
@@ -114,44 +119,45 @@ def insert_file_record(record: Dict[str, Any]) -> Dict[str, Any]:
     Raises:
         RuntimeError: If the insert fails.
     """
-    client = get_supabase_client()
+    def _sync() -> Dict[str, Any]:
+        client = get_supabase_client()
+        response = (
+            client.table("uploaded_files")
+            .insert(record)
+            .execute()
+        )
+        if not response.data:
+            raise RuntimeError(f"DB insert failed for record: {record}")
+        logger.info("Inserted file record — id=%s", response.data[0].get("id"))
+        return response.data[0]
 
-    response = (
-        client.table("uploaded_files")
-        .insert(record)
-        .execute()
-    )
-
-    if not response.data:
-        raise RuntimeError(f"DB insert failed for record: {record}")
-
-    logger.info("Inserted file record — id=%s", response.data[0].get("id"))
-    return response.data[0]
+    return await asyncio.get_running_loop().run_in_executor(None, _sync)
 
 
-def list_uploaded_files() -> List[Dict[str, Any]]:
+async def list_uploaded_files() -> List[Dict[str, Any]]:
     """Fetches all rows from the ``uploaded_files`` table.
 
     Returns:
         List[Dict[str, Any]]: List of dataset metadata rows.
     """
-    client = get_supabase_client()
+    def _sync() -> List[Dict[str, Any]]:
+        client = get_supabase_client()
+        response = (
+            client.table("uploaded_files")
+            .select("*")
+            .order("created_at", desc=True)
+            .execute()
+        )
+        return response.data or []
 
-    response = (
-        client.table("uploaded_files")
-        .select("*")
-        .order("created_at", desc=True)
-        .execute()
-    )
-
-    return response.data or []
+    return await asyncio.get_running_loop().run_in_executor(None, _sync)
 
 
 # ---------------------------------------------------------------------------
 # Agent run operations  (DS-STAR)
 # ---------------------------------------------------------------------------
 
-def create_agent_run(
+async def create_agent_run(
     run_id: str,
     query: str,
     file_names: List[str],
@@ -171,30 +177,31 @@ def create_agent_run(
     Raises:
         RuntimeError: If the DB insert fails.
     """
-    client = get_supabase_client()
+    def _sync() -> Dict[str, Any]:
+        client = get_supabase_client()
+        record = {
+            "id": run_id,
+            "session_id": session_id or None,
+            "query": query,
+            "file_names": file_names,
+            "status": "running",
+            "plan_steps": [],
+            "execution_logs": [],
+        }
+        try:
+            response = client.table("agent_runs").insert(record).execute()
+            if not response.data:
+                raise RuntimeError(f"Failed to create agent_run record: {run_id}")
+            logger.info("Created agent_run — id=%s", run_id)
+            return response.data[0]
+        except Exception as exc:  # pylint: disable=broad-except
+            logger.warning("Could not create agent_run (schema missing?): %s", exc)
+            return record
 
-    record = {
-        "id": run_id,
-        "session_id": session_id or None,
-        "query": query,
-        "file_names": file_names,
-        "status": "running",
-        "plan_steps": [],
-        "execution_logs": [],
-    }
-
-    try:
-        response = client.table("agent_runs").insert(record).execute()
-        if not response.data:
-            raise RuntimeError(f"Failed to create agent_run record: {run_id}")
-        logger.info("Created agent_run — id=%s", run_id)
-        return response.data[0]
-    except Exception as exc:  # pylint: disable=broad-except
-        logger.warning("Could not create agent_run (schema missing?): %s", exc)
-        return record
+    return await asyncio.get_running_loop().run_in_executor(None, _sync)
 
 
-def update_agent_run(
+async def update_agent_run(
     run_id: str,
     plan_steps: List[Dict[str, Any]],
     final_code: str,
@@ -217,33 +224,34 @@ def update_agent_run(
     Returns:
         Dict[str, Any]: The updated row.
     """
-    client = get_supabase_client()
+    def _sync() -> Dict[str, Any]:
+        client = get_supabase_client()
+        updates = {
+            "plan_steps": plan_steps,
+            "final_code": final_code,
+            "rounds": rounds,
+            "insights": insights,
+            "execution_logs": execution_logs,
+            "status": status,
+            "completed_at": datetime.datetime.utcnow().isoformat(),
+        }
+        try:
+            response = (
+                client.table("agent_runs")
+                .update(updates)
+                .eq("id", run_id)
+                .execute()
+            )
+            logger.info("Updated agent_run — id=%s, status=%s", run_id, status)
+            return response.data[0] if response.data else {}
+        except Exception as exc:  # pylint: disable=broad-except
+            logger.warning("Could not update agent_run (schema missing?): %s", exc)
+            return {}
 
-    updates = {
-        "plan_steps": plan_steps,
-        "final_code": final_code,
-        "rounds": rounds,
-        "insights": insights,
-        "execution_logs": execution_logs,
-        "status": status,
-        "completed_at": datetime.datetime.utcnow().isoformat(),
-    }
-
-    try:
-        response = (
-            client.table("agent_runs")
-            .update(updates)
-            .eq("id", run_id)
-            .execute()
-        )
-        logger.info("Updated agent_run — id=%s, status=%s", run_id, status)
-        return response.data[0] if response.data else {}
-    except Exception as exc:  # pylint: disable=broad-except
-        logger.warning("Could not update agent_run (schema missing?): %s", exc)
-        return {}
+    return await asyncio.get_running_loop().run_in_executor(None, _sync)
 
 
-def get_agent_run(run_id: str) -> Dict[str, Any]:
+async def get_agent_run(run_id: str) -> Dict[str, Any]:
     """Fetches a single agent_run row by its ID.
 
     Args:
@@ -252,23 +260,25 @@ def get_agent_run(run_id: str) -> Dict[str, Any]:
     Returns:
         Dict[str, Any]: The run row, or an empty dict if not found.
     """
-    client = get_supabase_client()
+    def _sync() -> Dict[str, Any]:
+        client = get_supabase_client()
+        try:
+            response = (
+                client.table("agent_runs")
+                .select("*")
+                .eq("id", run_id)
+                .maybe_single()
+                .execute()
+            )
+            return response.data or {}
+        except Exception as exc:  # pylint: disable=broad-except
+            logger.warning("Could not get agent_run (schema missing?): %s", exc)
+            return {}
 
-    try:
-        response = (
-            client.table("agent_runs")
-            .select("*")
-            .eq("id", run_id)
-            .maybe_single()
-            .execute()
-        )
-        return response.data or {}
-    except Exception as exc:  # pylint: disable=broad-except
-        logger.warning("Could not get agent_run (schema missing?): %s", exc)
-        return {}
+    return await asyncio.get_running_loop().run_in_executor(None, _sync)
 
 
-def list_agent_runs(limit: int = 20) -> List[Dict[str, Any]]:
+async def list_agent_runs(limit: int = 20) -> List[Dict[str, Any]]:
     """Fetches the most recent agent_run rows.
 
     Args:
@@ -277,33 +287,31 @@ def list_agent_runs(limit: int = 20) -> List[Dict[str, Any]]:
     Returns:
         List[Dict[str, Any]]: Agent run rows ordered newest first.
     """
-    client = get_supabase_client()
+    def _sync() -> List[Dict[str, Any]]:
+        client = get_supabase_client()
+        try:
+            response = (
+                client.table("agent_runs")
+                .select("id, query, file_names, rounds, status, created_at, completed_at, eval_metrics")
+                .order("created_at", desc=True)
+                .limit(limit)
+                .execute()
+            )
+            return response.data or []
+        except Exception as exc:  # pylint: disable=broad-except
+            logger.warning("Could not list agent_runs (schema missing?): %s", exc)
+            return []
 
-    try:
-        response = (
-            client.table("agent_runs")
-            .select("id, query, file_names, rounds, status, created_at, completed_at, eval_metrics")
-            .order("created_at", desc=True)
-            .limit(limit)
-            .execute()
-        )
-        return response.data or []
-    except Exception as exc:  # pylint: disable=broad-except
-        logger.warning("Could not list agent_runs (schema missing?): %s", exc)
-        return []
+    return await asyncio.get_running_loop().run_in_executor(None, _sync)
 
 
-def update_agent_run_metrics(
+async def update_agent_run_metrics(
     run_id: str,
     metrics: Dict[str, Any],
     total_run_ms: int,
     complexity: str,
 ) -> Dict[str, Any]:
     """Persists evaluation metrics onto an existing agent_run row.
-
-    Stores the RunMetrics summary (per-round timing, complexity tag, convergence
-    data) into the ``eval_metrics`` jsonb column.  Gracefully no-ops if the
-    column is not yet present in the Supabase schema.
 
     Args:
         run_id (str): Unique run identifier matching an existing agent_runs row.
@@ -314,44 +322,45 @@ def update_agent_run_metrics(
     Returns:
         Dict[str, Any]: The updated row, or empty dict on failure.
     """
-    client = get_supabase_client()
-
-    updates = {
-        "eval_metrics": {
-            **metrics,
-            "total_run_ms": total_run_ms,
-            "complexity": complexity,
+    def _sync() -> Dict[str, Any]:
+        client = get_supabase_client()
+        updates = {
+            "eval_metrics": {
+                **metrics,
+                "total_run_ms": total_run_ms,
+                "complexity": complexity,
+            }
         }
-    }
+        try:
+            response = (
+                client.table("agent_runs")
+                .update(updates)
+                .eq("id", run_id)
+                .execute()
+            )
+            logger.info(
+                "Persisted eval_metrics for run_id=%s — complexity=%s, total_ms=%d",
+                run_id,
+                complexity,
+                total_run_ms,
+            )
+            return response.data[0] if response.data else {}
+        except Exception as exc:  # pylint: disable=broad-except
+            logger.warning(
+                "Could not persist eval_metrics for run_id=%s (column may not exist yet): %s",
+                run_id,
+                exc,
+            )
+            return {}
 
-    try:
-        response = (
-            client.table("agent_runs")
-            .update(updates)
-            .eq("id", run_id)
-            .execute()
-        )
-        logger.info(
-            "Persisted eval_metrics for run_id=%s — complexity=%s, total_ms=%d",
-            run_id,
-            complexity,
-            total_run_ms,
-        )
-        return response.data[0] if response.data else {}
-    except Exception as exc:  # pylint: disable=broad-except
-        logger.warning(
-            "Could not persist eval_metrics for run_id=%s (column may not exist yet): %s",
-            run_id,
-            exc,
-        )
-        return {}
+    return await asyncio.get_running_loop().run_in_executor(None, _sync)
 
 
 # ---------------------------------------------------------------------------
 # Deep Research (DS-STAR+) tracking
 # ---------------------------------------------------------------------------
 
-def create_report_run(
+async def create_report_run(
     report_id: str,
     query: str,
     file_names: List[str],
@@ -368,29 +377,31 @@ def create_report_run(
     Returns:
         The inserted row as a dictionary.
     """
-    client = get_supabase_client()
-    record = {
-        "id": report_id,
-        "query": query,
-        "session_id": session_id or None,
-        "file_names": file_names,
-        "status": "running",
-        "key_findings": [],
-        "caveats": [],
-        "sub_questions": [],
-        "sub_run_ids": [],
-    }
+    def _sync() -> Dict[str, Any]:
+        client = get_supabase_client()
+        record = {
+            "id": report_id,
+            "query": query,
+            "session_id": session_id or None,
+            "file_names": file_names,
+            "status": "running",
+            "key_findings": [],
+            "caveats": [],
+            "sub_questions": [],
+            "sub_run_ids": [],
+        }
+        try:
+            response = client.table("reports").insert(record).execute()
+            logger.info("[Supabase] Created research report: %s", report_id)
+            return response.data[0] if response.data else record
+        except Exception as exc:  # pylint: disable=broad-except
+            logger.warning("[Supabase] Could not create report %s: %s", report_id, exc)
+            return record
 
-    try:
-        response = client.table("reports").insert(record).execute()
-        logger.info("[Supabase] Created research report: %s", report_id)
-        return response.data[0] if response.data else record
-    except Exception as exc:  # pylint: disable=broad-except
-        logger.warning("[Supabase] Could not create report %s: %s", report_id, exc)
-        return record
+    return await asyncio.get_running_loop().run_in_executor(None, _sync)
 
 
-def create_subquestions(
+async def create_subquestions(
     report_id: str,
     sub_questions: List[str],
 ) -> None:
@@ -400,37 +411,38 @@ def create_subquestions(
         report_id: The parent report ID.
         sub_questions: Ordered list of sub-questions to track.
     """
-    client = get_supabase_client()
+    def _sync() -> None:
+        client = get_supabase_client()
+        try:
+            client.table("reports").update({
+                "sub_questions": sub_questions,
+                "sub_run_ids": [None] * len(sub_questions)
+            }).eq("id", report_id).execute()
+        except Exception as exc:  # pylint: disable=broad-except
+            logger.warning("[Supabase] Could not update report array: %s", exc)
 
-    # Update parent report to track the sub-questions array
-    try:
-        client.table("reports").update({
-            "sub_questions": sub_questions,
-            "sub_run_ids": [None] * len(sub_questions)
-        }).eq("id", report_id).execute()
-    except Exception as exc:  # pylint: disable=broad-except
-        logger.warning("[Supabase] Could not update report array: %s", exc)
+        records = [
+            {
+                "id": f"{report_id}-q{i}",
+                "report_id": report_id,
+                "question": sq,
+                "question_index": i,
+                "status": "pending"
+            }
+            for i, sq in enumerate(sub_questions)
+        ]
+        try:
+            client.table("sub_questions").insert(records).execute()
+            logger.info(
+                "[Supabase] Inserted %d sub-questions for %s", len(records), report_id
+            )
+        except Exception as exc:  # pylint: disable=broad-except
+            logger.warning("[Supabase] Could not create sub-questions: %s", exc)
 
-    # Insert individual sub-question tracker rows
-    records = [
-        {
-            "id": f"{report_id}-q{i}",
-            "report_id": report_id,
-            "question": sq,
-            "question_index": i,
-            "status": "pending"
-        }
-        for i, sq in enumerate(sub_questions)
-    ]
-
-    try:
-        client.table("sub_questions").insert(records).execute()
-        logger.info("[Supabase] Inserted %d sub-questions for %s", len(records), report_id)
-    except Exception as exc:  # pylint: disable=broad-except
-        logger.warning("[Supabase] Could not create sub-questions: %s", exc)
+    await asyncio.get_running_loop().run_in_executor(None, _sync)
 
 
-def link_subquestion_run(
+async def link_subquestion_run(
     report_id: str,
     question_index: int,
     status: str,
@@ -444,20 +456,22 @@ def link_subquestion_run(
         status: The final status (e.g. 'completed' or 'failed').
         result_run_id: The run ID of the DS-STAR execution that answered this question.
     """
-    client = get_supabase_client()
-    sq_id = f"{report_id}-q{question_index}"
+    def _sync() -> None:
+        client = get_supabase_client()
+        sq_id = f"{report_id}-q{question_index}"
+        try:
+            client.table("sub_questions").update({
+                "status": status,
+                "result_run_id": result_run_id,
+                "completed_at": datetime.datetime.utcnow().isoformat()
+            }).eq("id", sq_id).execute()
+        except Exception as exc:  # pylint: disable=broad-except
+            logger.warning("[Supabase] Could not link sub-question %s: %s", sq_id, exc)
 
-    try:
-        client.table("sub_questions").update({
-            "status": status,
-            "result_run_id": result_run_id,
-            "completed_at": datetime.datetime.utcnow().isoformat()
-        }).eq("id", sq_id).execute()
-    except Exception as exc:  # pylint: disable=broad-except
-        logger.warning("[Supabase] Could not link sub-question %s: %s", sq_id, exc)
+    await asyncio.get_running_loop().run_in_executor(None, _sync)
 
 
-def update_report_status(
+async def update_report_status(
     report_id: str,
     status: str,
     title: str = "",
@@ -479,20 +493,26 @@ def update_report_status(
         caveats: Any warnings or errors encountered during the sub-runs.
         total_ms: Wall-clock duration of the entire DeepResearch workflow.
     """
-    client = get_supabase_client()
-    updates = {
-        "status": status,
-        "title": title or None,
-        "executive_summary": executive_summary or None,
-        "report_body": report_body or None,
-        "key_findings": key_findings or [],
-        "caveats": caveats or [],
-        "total_ms": total_ms,
-        "completed_at": datetime.datetime.utcnow().isoformat()
-    }
+    def _sync() -> None:
+        client = get_supabase_client()
+        updates = {
+            "status": status,
+            "title": title or None,
+            "executive_summary": executive_summary or None,
+            "report_body": report_body or None,
+            "key_findings": key_findings or [],
+            "caveats": caveats or [],
+            "total_ms": total_ms,
+            "completed_at": datetime.datetime.utcnow().isoformat()
+        }
+        try:
+            client.table("reports").update(updates).eq("id", report_id).execute()
+            logger.info(
+                "[Supabase] Finalised report %s with status=%s", report_id, status
+            )
+        except Exception as exc:  # pylint: disable=broad-except
+            logger.warning(
+                "[Supabase] Could not finalise report %s: %s", report_id, exc
+            )
 
-    try:
-        client.table("reports").update(updates).eq("id", report_id).execute()
-        logger.info("[Supabase] Finalised report %s with status=%s", report_id, status)
-    except Exception as exc:  # pylint: disable=broad-except
-        logger.warning("[Supabase] Could not finalise report %s: %s", report_id, exc)
+    await asyncio.get_running_loop().run_in_executor(None, _sync)

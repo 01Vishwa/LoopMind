@@ -46,18 +46,21 @@ _RESEARCH_KEYWORDS = frozenset({
 def is_open_ended(query: str) -> bool:
     """Returns True if the query is open-ended and suited for DS-STAR+.
 
-    Uses keyword heuristics. Controllers may also explicitly call the
-    research endpoint, bypassing this check.
+    Uses keyword heuristics only. The word-count heuristic has been removed
+    because it incorrectly routed ordinary analytical questions (>15 words)
+    into the expensive parallel DS-STAR+ pipeline. Research mode can be
+    forced explicitly by calling the research endpoint directly, or via the
+    UI research-mode toggle (AgentSettings).
 
     Args:
         query: The user's natural language query.
 
     Returns:
-        True if the query looks research-oriented / open-ended.
+        True if the query contains research-oriented keywords.
     """
     lower = query.lower()
     words = set(lower.split())
-    return bool(words & _RESEARCH_KEYWORDS) or len(query.split()) > 15
+    return bool(words & _RESEARCH_KEYWORDS)
 
 
 # ---------------------------------------------------------------------------
@@ -72,11 +75,9 @@ async def _run_single_ds_star(
     temperature: Optional[float],
     max_rounds: int,
     sub_run_id: str,
+    session_id: str = "__anon__",
 ) -> Dict[str, Any]:
     """Runs a complete DS-STAR loop for one sub-question and returns its result.
-
-    This function collects all SSE events from the DsStarOrchestrator and
-    extracts the final ``completed`` and ``metrics`` payloads.
 
     Args:
         question: The atomic sub-question to answer.
@@ -86,15 +87,11 @@ async def _run_single_ds_star(
         temperature: Sampling temperature override.
         max_rounds: Maximum orchestrator rounds per sub-question.
         sub_run_id: Unique run ID for this sub-question run.
+        session_id: Client session identifier — scopes executor file access so
+            sub-runs see only this session's uploaded files, not __anon__ bucket.
 
     Returns:
-        Dict containing:
-            - ``status``: ``"completed"`` | ``"failed"`` | ``"max_rounds_reached"``
-            - ``execution_output``: stdout from the last execution round.
-            - ``insights``: Insights dict from `_build_insights`.
-            - ``code``: Generated Python script.
-            - ``rounds``: Number of rounds completed.
-            - ``run_id``: Sub-question run ID.
+        Dict containing status, execution_output, insights, code, rounds, run_id.
     """
     orchestrator = DsStarOrchestrator(
         max_rounds=max_rounds,
@@ -113,7 +110,9 @@ async def _run_single_ds_star(
     }
 
     try:
-        async for event in orchestrator.run(question, context, run_id=sub_run_id):
+        async for event in orchestrator.run(
+            question, context, run_id=sub_run_id, session_id=session_id
+        ):
             event_type = event.get("event")
             payload = event.get("payload", {})
             if event_type == "completed":
@@ -197,6 +196,7 @@ class DeepResearchOrchestrator:
         query: str,
         context: Dict[str, Any],
         report_id: str = "",
+        session_id: str = "__anon__",
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """Executes the DS-STAR+ research loop and yields SSE events.
 
@@ -205,6 +205,9 @@ class DeepResearchOrchestrator:
             context: Processing context from /process endpoint,
                 including ``combined_extractions`` and ``files_processed``.
             report_id: Unique report identifier for Supabase persistence.
+            session_id: Client session identifier — forwarded to all
+                sub-question DS-STAR runs so their executors access the
+                correct session file bucket instead of ``__anon__``.
 
         Yields:
             AgentEvent dicts for SSE streaming.
@@ -310,6 +313,7 @@ class DeepResearchOrchestrator:
                     temperature=self._temperature,
                     max_rounds=self._max_rounds,
                     sub_run_id=sub_run_ids[i],
+                    session_id=session_id,
                 )
                 logger.info(
                     "[DeepResearch] Q%d done | status=%s | run_id=%s",

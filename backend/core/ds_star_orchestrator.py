@@ -376,16 +376,19 @@ class DsStarOrchestrator:
                 message=f"Round {round_num}: Executing generated code…",
                 round=round_num,
             )
-            exec_t0 = time.monotonic()
+            exec_t0 = time.monotonic()  # set before loop for total wall-clock
             debug_attempts = 0
             _code_to_run = current_code
+            _total_exec_ms = 0  # ARCH-06: accumulate across all debug-loop iterations
 
             while True:
+                _iter_t0 = time.monotonic()  # ARCH-06: time each attempt individually
                 try:
                     last_exec_result = await self.executor.run(
                         _code_to_run, session_id=session_id
                     )
-                    timing.record("executor", _ms_since(exec_t0))
+                    _total_exec_ms += _ms_since(_iter_t0)
+                    timing.record("executor", _total_exec_ms)
                     exec_summary = (
                         f"[Round {round_num}] Execution "
                         f"{'succeeded' if last_exec_result.success else 'failed'}."
@@ -468,7 +471,8 @@ class DsStarOrchestrator:
                         break  # Success or max debugger retries exhausted
 
                 except Exception as exc:  # pylint: disable=broad-except
-                    timing.record("executor", _ms_since(exec_t0))
+                    _total_exec_ms += _ms_since(_iter_t0)
+                    timing.record("executor", _total_exec_ms)
                     last_exec_result = ExecutionResult("", str(exc), 1)
                     execution_logs.append(f"[Round {round_num}] Executor crash: {exc}")
                     yield _event("warning", message=f"Executor crash: {exc}")
@@ -523,7 +527,7 @@ class DsStarOrchestrator:
                     reason=verification["reason"],
                     confidence=verification.get("confidence", 0.5),
                     round=round_num,
-                    verifier_ms=timing._timings.get("verifier", 0),
+                    verifier_ms=timing.get("verifier"),
                 )
             except Exception as exc:  # pylint: disable=broad-except
                 for ev in pending_retry_events:

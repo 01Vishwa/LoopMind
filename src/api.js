@@ -3,7 +3,13 @@
  *
  * Wraps all FastAPI endpoints. The Vite dev proxy forwards /api/* → http://localhost:8000/api/*
  * so no hard-coded origin is needed here.
+ *
+ * NOTE: Agent runs use Server-Sent Events over POST /api/agent/run, not this module.
+ * SSE streaming is handled by the useAgentStream hook which manages the EventSource
+ * connection directly. The former runQuery() has been removed — it called /api/query
+ * which does not exist in the backend router.
  */
+
 
 const BASE = '/api'
 
@@ -68,27 +74,6 @@ export async function processFiles(filenames) {
   if (!res.ok) {
     const err = await res.json().catch(() => ({ message: `HTTP ${res.status}` }))
     throw new Error(err.message || `Process failed with status ${res.status}`)
-  }
-
-  return res.json()
-}
-
-/**
- * Sends a natural language query to /api/query.
- *
- * @param {string} query - The user's query string.
- * @returns {Promise<{ insights: { summary: string, bullets: string[] }, code: object }>}
- */
-export async function runQuery(query) {
-  const res = await fetch(`${BASE}/query`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ query }),
-  })
-
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ message: `HTTP ${res.status}` }))
-    throw new Error(err.message || `Query failed with status ${res.status}`)
   }
 
   return res.json()

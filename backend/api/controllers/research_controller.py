@@ -3,22 +3,87 @@
 Handles streaming responses for the /api/research endpoint.
 Delegates to DeepResearchOrchestrator and serialises each AgentEvent as SSE.
 
-Also persists:
-- A new ``reports`` row before the loop starts.
-- ``sub_questions`` rows for each generated sub-question.
-- Final report content when research_complete is emitted.
-- Status update to ``failed`` if an error event terminates the stream.
+Fixes applied:
+- ARCH-01: DeepResearchOrchestrator instances are cached at module level by
+  (model, coder_model, temperature, max_workers) key to eliminate per-request
+  construction overhead (analyzer + subq_agent + report_writer + retriever +
+  Retriever embedding model load on every request → zero).
+- ARCH-05: session_id is now forwarded into orchestrator.run() so all
+  sub-question DS-STAR runs use the correct session bucket.
+- ARCH-03: All Supabase helper functions are now awaited (async callers).
+- Persists a new ``reports`` row before the loop starts.
+- Persists ``sub_questions`` rows for each generated sub-question.
+- Persists final report content when research_complete is emitted.
+- Marks report as ``failed`` if an error event terminates the stream.
 """
 
+import asyncio
 import json
 import logging
 import uuid
-from typing import Any, AsyncGenerator, Dict, List, Optional
+from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple
 
 from core.deep_research_orchestrator import DeepResearchOrchestrator
 
 logger = logging.getLogger("uvicorn.info")
 
+
+# ---------------------------------------------------------------------------
+# ARCH-01: Module-level orchestrator cache
+# ---------------------------------------------------------------------------
+
+_ResearchOrchestratorKey = Tuple[Optional[str], Optional[str], Optional[float], Optional[int]]
+_research_orchestrator_cache: Dict[_ResearchOrchestratorKey, DeepResearchOrchestrator] = {}
+
+
+def _get_research_orchestrator(
+    max_rounds: Optional[int],
+    model: Optional[str],
+    coder_model: Optional[str],
+    temperature: Optional[float],
+    max_workers: Optional[int],
+) -> DeepResearchOrchestrator:
+    """Returns a cached DeepResearchOrchestrator for the given configuration.
+
+    Keyed by (model, coder_model, temperature, max_workers). Per-request
+    ``max_rounds`` is applied directly to the cached instance's ``_max_rounds``
+    attribute without invalidating the cache.
+
+    DeepResearchOrchestrator.run() stores all per-run state in local variables,
+    so sharing instances across requests is safe.
+
+    Args:
+        max_rounds: Per-request round limit for sub-question DS-STAR runs.
+        model: Reasoning LLM model override.
+        coder_model: Code-generation LLM model override.
+        temperature: Sampling temperature override.
+        max_workers: Max parallel DS-STAR sub-runs override.
+
+    Returns:
+        A ready-to-use DeepResearchOrchestrator instance.
+    """
+    from core.config import MAX_AGENT_ROUNDS  # pylint: disable=import-outside-toplevel
+    cache_key: _ResearchOrchestratorKey = (model, coder_model, temperature, max_workers)
+    if cache_key not in _research_orchestrator_cache:
+        _research_orchestrator_cache[cache_key] = DeepResearchOrchestrator(
+            max_rounds=max_rounds,
+            model=model,
+            coder_model=coder_model,
+            temperature=temperature,
+            max_workers=max_workers,
+        )
+        logger.info(
+            "[ResearchController] Orchestrator created — model=%s, workers=%s",
+            model, max_workers,
+        )
+    orchestrator = _research_orchestrator_cache[cache_key]
+    orchestrator._max_rounds = max_rounds or MAX_AGENT_ROUNDS
+    return orchestrator
+
+
+# ---------------------------------------------------------------------------
+# Main controller
+# ---------------------------------------------------------------------------
 
 async def handle_research_run(
     query: str,
@@ -46,17 +111,15 @@ async def handle_research_run(
         SSE-formatted ``data: <json>\\n\\n`` lines.
     """
     report_id = uuid.uuid4().hex
+    _session_id = session_id or "__anon__"
 
-    orchestrator = DeepResearchOrchestrator(
-        max_rounds=max_rounds,
-        model=model,
-        coder_model=coder_model,
-        temperature=temperature,
-        max_workers=max_workers,
+    # ARCH-01: use cached orchestrator
+    orchestrator = _get_research_orchestrator(
+        max_rounds, model, coder_model, temperature, max_workers
     )
 
     # Persist report row before streaming starts
-    _try_create_report(report_id, session_id, query, context)
+    await _try_create_report(report_id, _session_id, query, context)
 
     # Emit report_id to frontend immediately
     yield f"data: {json.dumps({'event': 'report_started', 'payload': {'report_id': report_id}})}\n\n"
@@ -64,39 +127,38 @@ async def handle_research_run(
     sub_questions_created = False
 
     try:
-        async for event in orchestrator.run(query, context, report_id=report_id):
+        # ARCH-05: pass session_id into run() so sub-question executors use correct bucket
+        async for event in orchestrator.run(
+            query, context, report_id=report_id, session_id=_session_id
+        ):
             payload = json.dumps(event, default=str)
             yield f"data: {payload}\n\n"
 
             event_type = event.get("event")
             event_payload = event.get("payload", {})
 
-            # Create sub_question rows the moment they are generated
             if event_type == "subquestions_ready" and not sub_questions_created:
                 sub_questions = event_payload.get("sub_questions", [])
-                _try_create_subquestions(report_id, sub_questions)
+                await _try_create_subquestions(report_id, sub_questions)
                 sub_questions_created = True
 
-            # Update sub_question rows as each completes
             elif event_type == "subquestion_complete":
-                _try_update_subquestion(
+                await _try_update_subquestion(
                     report_id=report_id,
                     index=event_payload.get("index", 0),
                     status=event_payload.get("status", "completed"),
                     result_run_id=event_payload.get("sub_run_id", ""),
                 )
 
-            # Persist final report content
             elif event_type == "research_complete":
-                _try_update_report(
+                await _try_update_report(
                     report_id=report_id,
                     event_payload=event_payload,
                     status="completed",
                 )
 
-            # Mark report as failed on terminal error
             elif event_type == "error":
-                _try_fail_report(report_id)
+                await _try_fail_report(report_id)
 
     except Exception as exc:  # pylint: disable=broad-except
         error_event = json.dumps({
@@ -104,7 +166,7 @@ async def handle_research_run(
             "payload": {"message": str(exc)},
         })
         yield f"data: {error_event}\n\n"
-        _try_fail_report(report_id)
+        await _try_fail_report(report_id)
         logger.error(
             "[ResearchController] Stream error for report_id=%s: %s",
             report_id,
@@ -116,27 +178,20 @@ async def handle_research_run(
 
 
 # ---------------------------------------------------------------------------
-# Supabase persistence helpers (all non-blocking, warn on failure)
+# Supabase persistence helpers (async, non-blocking, warn on failure)
 # ---------------------------------------------------------------------------
 
-def _try_create_report(
+async def _try_create_report(
     report_id: str,
     session_id: str,
     query: str,
     context: Dict[str, Any],
 ) -> None:
-    """Creates a new reports row with status=running.
-
-    Args:
-        report_id: Unique report identifier.
-        session_id: Client session identifier.
-        query: Original research query.
-        context: Processing context (used to extract file names).
-    """
+    """Creates a new reports row with status=running."""
     try:
         from services.supabase_service import create_report_run  # pylint: disable=import-outside-toplevel
         file_names = list(context.get("combined_extractions", {}).keys())
-        create_report_run(
+        await create_report_run(
             report_id=report_id,
             query=query,
             file_names=file_names,
@@ -148,42 +203,30 @@ def _try_create_report(
         )
 
 
-def _try_create_subquestions(
+async def _try_create_subquestions(
     report_id: str,
     sub_questions: List[str],
 ) -> None:
-    """Creates sub_questions rows for each generated question.
-
-    Args:
-        report_id: Parent report identifier.
-        sub_questions: Ordered list of atomic sub-question strings.
-    """
+    """Creates sub_questions rows for each generated question."""
     try:
         from services.supabase_service import create_subquestions  # pylint: disable=import-outside-toplevel
-        create_subquestions(report_id=report_id, sub_questions=sub_questions)
+        await create_subquestions(report_id=report_id, sub_questions=sub_questions)
     except Exception as exc:  # pylint: disable=broad-except
         logger.warning(
             "[ResearchController] Could not persist sub_questions: %s", exc
         )
 
 
-def _try_update_subquestion(
+async def _try_update_subquestion(
     report_id: str,
     index: int,
     status: str,
     result_run_id: str,
 ) -> None:
-    """Updates a single sub_question row with its DS-STAR result.
-
-    Args:
-        report_id: Parent report identifier.
-        index: Zero-based position of this sub-question.
-        status: Final status string from the DS-STAR run.
-        result_run_id: The agent_run ID for this sub-question run.
-    """
+    """Updates a single sub_question row with its DS-STAR result."""
     try:
         from services.supabase_service import link_subquestion_run  # pylint: disable=import-outside-toplevel
-        link_subquestion_run(
+        await link_subquestion_run(
             report_id=report_id,
             question_index=index,
             status=status,
@@ -197,21 +240,15 @@ def _try_update_subquestion(
         )
 
 
-def _try_update_report(
+async def _try_update_report(
     report_id: str,
     event_payload: Dict[str, Any],
     status: str = "completed",
 ) -> None:
-    """Persists the final report content to the reports table.
-
-    Args:
-        report_id: Unique report identifier.
-        event_payload: The ``research_complete`` SSE event payload dict.
-        status: Terminal status (``"completed"`` or ``"failed"``).
-    """
+    """Persists the final report content to the reports table."""
     try:
         from services.supabase_service import update_report_status  # pylint: disable=import-outside-toplevel
-        update_report_status(
+        await update_report_status(
             report_id=report_id,
             status=status,
             title=event_payload.get("title", ""),
@@ -227,15 +264,11 @@ def _try_update_report(
         )
 
 
-def _try_fail_report(report_id: str) -> None:
-    """Marks a report as failed in Supabase.
-
-    Args:
-        report_id: Unique report identifier.
-    """
+async def _try_fail_report(report_id: str) -> None:
+    """Marks a report as failed in Supabase."""
     try:
         from services.supabase_service import update_report_status  # pylint: disable=import-outside-toplevel
-        update_report_status(report_id=report_id, status="failed")
+        await update_report_status(report_id=report_id, status="failed")
     except Exception as exc:  # pylint: disable=broad-except
         logger.warning(
             "[ResearchController] Could not mark report as failed: %s", exc

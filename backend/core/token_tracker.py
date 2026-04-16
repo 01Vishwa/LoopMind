@@ -176,18 +176,66 @@ class TokenUsageCallback(BaseCallbackHandler):
         self.tracker = tracker
 
     def on_llm_end(self, response: LLMResult, **kwargs: Any) -> None:
-        """Reads token_usage from LLMResult and records into the tracker.
+        """Reads token usage from LLMResult and records into the tracker.
+
+        Tries three extraction paths in priority order:
+
+        1. ``response.llm_output["token_usage"]`` — populated by OpenAI-compatible
+           endpoints and some ChatNVIDIA versions.
+        2. ``response.generations[0][0].message.usage_metadata`` — the field
+           ChatNVIDIA / NIM endpoints actually populate for structured-output
+           chains (where llm_output may be None).
+        3. Character-count heuristic (1 token ≈ 4 chars) applied to the raw
+           generation text — ensures over_budget() is never permanently False
+           even when the model returns no usage metadata.
 
         Args:
             response: The LangChain LLMResult returned by the LLM call.
             **kwargs: Additional keyword arguments (ignored).
         """
+        # ── Path 1: llm_output["token_usage"] (OpenAI / some NIM) ─────────
         usage = (response.llm_output or {}).get("token_usage")
-        if isinstance(usage, dict):
+        if isinstance(usage, dict) and (
+            usage.get("prompt_tokens", 0) + usage.get("completion_tokens", 0) > 0
+        ):
             self.tracker.record(
                 prompt=int(usage.get("prompt_tokens", 0)),
                 completion=int(usage.get("completion_tokens", 0)),
             )
+            return
+
+        # ── Path 2: ChatNVIDIA usage_metadata on the AIMessage ────────────
+        try:
+            gen = response.generations[0][0]
+            msg = getattr(gen, "message", None)
+            meta = getattr(msg, "usage_metadata", None)
+            if meta and isinstance(meta, dict):
+                prompt_t = int(meta.get("input_tokens", 0))
+                completion_t = int(meta.get("output_tokens", 0))
+                if prompt_t + completion_t > 0:
+                    self.tracker.record(prompt=prompt_t, completion=completion_t)
+                    return
+        except (IndexError, AttributeError, TypeError):
+            pass
+
+        # ── Path 3: Character-count heuristic (1 token ≈ 4 chars) ─────────
+        try:
+            gen_text = ""
+            for gen_list in response.generations:
+                for gen in gen_list:
+                    text = getattr(gen, "text", "") or ""
+                    gen_text += text
+            if gen_text:
+                approx_completion = max(1, len(gen_text) // 4)
+                self.tracker.record(prompt=0, completion=approx_completion)
+                logger.debug(
+                    "[TokenTracker] Heuristic fallback: ~%d completion tokens "
+                    "(%d chars)",
+                    approx_completion,
+                    len(gen_text),
+                )
+        except Exception:  # pylint: disable=broad-except
+            pass  # Truly nothing to record — budget check stays at 0
 
 
 def tracker_callback_config(tracker: Optional[TokenTracker]) -> RunnableConfig:

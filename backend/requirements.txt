@@ -22,6 +22,12 @@ langchain-core>=0.3.0
 # Docker sandbox executor (activate with DOCKER_SANDBOX_ENABLED=true)
 docker>=7.0.0
 
+# File magic-byte validation (MIN-04) — bundles libmagic for Windows
+python-magic-bin>=0.4.14
+
+# Embedding model for retrieval (PERF-01, PERF-02)
+sentence-transformers>=2.7.0
+
 # Redis rate limiting (deferred — requires Redis)
 # slowapi>=0.1.9
 # redis>=5.0.0
