@@ -11,7 +11,7 @@
 
 ## 📖 Overview
 
-LoopMind is a production-grade, multi-agent AI platform built for Intelligent Document Processing. By leveraging the **DS-STAR Framework** (Data Science - Self-Taught Agent with Reasoning), the platform dynamically analyzes datasets, generates Python code to process them, executes the code in a secure sandbox, and self-verifies the output against user constraints.
+LoopMind is a multi-agent AI platform built for Intelligent Document Processing. By leveraging the **DS-STAR Framework** (Data Science - Self-Taught Agent with Reasoning), the platform dynamically analyzes datasets, generates Python code to process them, executes the code in a secure sandbox, and self-verifies the output against user constraints.
 
 ## ✨ Key Features
 
@@ -89,20 +89,21 @@ flowchart TD
 ```text
 LoopMind/
 ├── backend/
-│   ├── agents/            # DS-STAR logic (Planner, Coder, Verifier, Router, FileAnalyze)
-│   ├── core/              # Main logic, Prompts, Configs, DS-STAR Orchestrator
-│   ├── code_executor/     # Docker-based secure Python runtime script
-│   ├── models/            # Pydantic schema validation & metrics
-│   ├── routers/           # FastAPI execution routes (API logic)
-│   ├── services/          # External connections (Supabase, State Tracking)
+│   ├── api/               # FastAPI execution routes
+│   ├── core/              # DS-STAR Orchestrator and Agent Implementations
+│   ├── eval/              # Evaluation Framework and Metrics
+│   ├── middleware/        # FastAPI Middlewares (CORS, Error handlers)
+│   ├── migrations/        # Database setup and migrations
+│   ├── models/            # Pydantic schema validation
+│   ├── services/          # External connections (Supabase, Tracking)
 │   └── main.py            # FastAPI Entry Point
-├── frontend/
-│   ├── src/
-│   │   ├── components/    # Reusable React components (HistoryPanel, etc.)
-│   │   ├── hooks/         # Custom state hooks (useAgentRun)
-│   │   └── App.jsx        # Core UI Wrapper & Routing
-│   ├── vite.config.js     # Bundler configuration
-│   └── package.json       # Node dependencies
+├── src/
+│   ├── components/        # Reusable React components
+│   ├── hooks/             # Custom state hooks (useAgentRun)
+│   └── App.jsx            # Core UI Wrapper & Routing
+├── public/                # Static assets for Frontend
+├── vite.config.js         # Bundler configuration
+├── package.json           # Node dependencies
 └── docs/                  # Detailed architectural and API documentation
 ```
 
@@ -153,7 +154,7 @@ python main.py
 
 ### 3. Frontend Setup
 ```bash
-cd frontend  # or run from project root if setup allows
+# Run from project root
 npm install
 npm run dev
 ```

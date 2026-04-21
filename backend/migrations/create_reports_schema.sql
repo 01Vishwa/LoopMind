@@ -78,9 +78,11 @@ create index if not exists sub_questions_result_run_id_idx
 
 -- ── 5. Row-Level Security ─────────────────────────────────────────────────────
 alter table reports enable row level security;
-create policy if not exists "Allow all operations on reports"
+drop policy if exists "Allow all operations on reports" on reports;
+create policy "Allow all operations on reports"
   on reports for all using (true);
 
 alter table sub_questions enable row level security;
-create policy if not exists "Allow all operations on sub_questions"
+drop policy if exists "Allow all operations on sub_questions" on sub_questions;
+create policy "Allow all operations on sub_questions"
   on sub_questions for all using (true);

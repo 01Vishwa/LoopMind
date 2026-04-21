@@ -1,15 +1,14 @@
 import React from 'react'
-import { Cpu, Zap, GitBranch, Brain } from 'lucide-react'
+import { Cpu, Zap, GitBranch, BarChart2 } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import { FileUploadPanel } from '../components/upload/FileUploadPanel'
 import { QueryInput } from '../components/query/QueryInput'
 import { AgentProgressPanel } from '../components/agent/AgentProgressPanel'
 import { HistoryPanel } from '../components/agent/HistoryPanel'
 import { AgentSettings } from '../components/agent/AgentSettings'
 import { ConfirmDialog } from '../components/shared/ConfirmDialog'
-import { useFileUpload } from '../hooks/useFileUpload'
-import { useAgentRun } from '../hooks/useAgentRun'
 
-export function HomePage() {
+export function HomePage({ fileState, agentState }) {
   const {
     files,
     pendingDuplicates,
@@ -18,7 +17,7 @@ export function HomePage() {
     handleConfirmDuplicates,
     handleRemoveFile,
     handleClearAll,
-  } = useFileUpload()
+  } = fileState
 
   const {
     agentStatus,
@@ -43,7 +42,7 @@ export function HomePage() {
     totalRunMs,
     complexity,
     showMetrics,
-  } = useAgentRun(files, sessionId)
+  } = agentState
 
   const isProcessing = !['idle', 'completed', 'failed'].includes(agentStatus)
 
@@ -86,12 +85,9 @@ export function HomePage() {
           </div>
 
           <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl border text-[12px]
-                            font-semibold bg-gradient-to-r from-brand-500 to-violet-600
-                            text-white border-transparent shadow-md">
-              <Brain size={13} />
-              Agent Mode
-            </div>
+            <Link to="/eval" className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-slate-200 text-[12px] font-semibold bg-white text-slate-700 shadow-sm hover:bg-slate-50 transition-colors">
+              <BarChart2 size={13} className="text-violet-600" />
+            </Link>
 
             <AgentSettings
               settings={settings}
