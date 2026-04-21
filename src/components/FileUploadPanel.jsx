@@ -1,9 +1,13 @@
-import React from 'react'
+import React, { useCallback } from 'react'
 import { UploadCloud, Trash2, FolderOpen } from 'lucide-react'
 import { DropZone } from './DropZone'
 import { FileList } from './FileList'
+import { toast } from './Toast'
 
 export function FileUploadPanel({ files, onAddFiles, onRemoveFile, onClearAll }) {
+  const handleRejected = useCallback((rejectedFiles) => {
+    rejectedFiles.forEach((r) => toast(`"${r.name}" — ${r.reason}`, 'error'))
+  }, [])
   return (
     <div className="h-full flex flex-col gap-5 min-h-0">
       {/* Header */}
@@ -28,12 +32,12 @@ export function FileUploadPanel({ files, onAddFiles, onRemoveFile, onClearAll })
           )}
         </div>
         <p className="text-xs text-slate-500 mt-1 ml-10">
-          Supported: CSV, TXT, XLSX, PDF, JSON, Markdown
+          Supported: CSV, TXT, XLSX, PDF, JSON, Markdown, Parquet
         </p>
       </div>
 
       {/* Drop Zone */}
-      <DropZone onFiles={onAddFiles} />
+      <DropZone onFiles={onAddFiles} onRejected={handleRejected} />
 
       {/* File List */}
       {files.length > 0 ? (

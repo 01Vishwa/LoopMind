@@ -27,6 +27,8 @@ from typing import Any, AsyncGenerator, Dict, Optional, Tuple
 
 from fastapi import Request
 
+from eval.eval_logger import EvalLogger
+
 from core.config import MAX_AGENT_ROUNDS
 from core.ds_star_orchestrator import DsStarOrchestrator
 
@@ -153,6 +155,9 @@ async def handle_agent_run(
     # Persist new run row — non-blocking
     await _try_create_run(run_id, _session_id, query, context)
 
+    # Eval sidecar — passive observer, zero orchestration changes
+    eval_logger = EvalLogger(run_id=run_id, query=query)
+
     # Emit run_id to the frontend immediately
     yield f"data: {json.dumps({'event': 'run_started', 'payload': {'run_id': run_id}})}\n\n"
 
@@ -179,6 +184,8 @@ async def handle_agent_run(
                 await _try_update_run(run_id, {}, status="failed")
                 return
 
+            eval_logger.ingest(event)  # ← eval sidecar: passive observation
+
             payload = json.dumps(event, default=str)
             yield f"data: {payload}\n\n"
 
@@ -204,6 +211,7 @@ async def handle_agent_run(
     finally:
         if monitor_task is not None:
             monitor_task.cancel()
+        await eval_logger.finalize()  # ← eval sidecar: flush to Supabase
         yield "data: {\"event\": \"stream_end\", \"payload\": {}}\n\n"
 
 

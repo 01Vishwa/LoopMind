@@ -34,6 +34,7 @@ from api.controllers.agent_controller import handle_agent_run
 from api.controllers.process_controller import handle_clear, handle_process
 from api.controllers.upload_controller import handle_upload
 from api.controllers.research_controller import handle_research_run
+from eval.eval_routes import eval_router
 from core.deep_research_orchestrator import is_open_ended
 from core.config import SESSION_TTL_SECONDS, MAX_SESSIONS
 from models.schemas import AgentRunRequest, UploadResponse
@@ -41,6 +42,7 @@ from models.schemas import AgentRunRequest, UploadResponse
 logger = logging.getLogger("uvicorn.error")
 
 router = APIRouter()
+router.include_router(eval_router, prefix="/eval")
 
 # ---------------------------------------------------------------------------
 # ARCH-02: Session context store with TTL eviction and size cap

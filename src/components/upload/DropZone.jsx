@@ -1,20 +1,30 @@
 import React, { useCallback, useRef, useState } from 'react'
 import { UploadCloud } from 'lucide-react'
 
-const ACCEPTED = '.csv,.txt,.xlsx,.xls,.pdf,.json,.md'
-const ACCEPTED_TYPES = ['csv', 'txt', 'xlsx', 'xls', 'pdf', 'json', 'md']
+const ACCEPTED = '.csv,.txt,.xlsx,.xls,.pdf,.json,.md,.parquet'
+const ACCEPTED_TYPES = ['csv', 'txt', 'xlsx', 'xls', 'pdf', 'json', 'md', 'parquet']
+const SUPPORTED_LABEL = 'csv, txt, xlsx, pdf, json, md, parquet'
 
-export function DropZone({ onFiles }) {
+export function DropZone({ onFiles, onRejected }) {
   const [dragging, setDragging] = useState(false)
   const inputRef = useRef(null)
 
   const processFiles = useCallback((rawFiles) => {
-    const valid = Array.from(rawFiles).filter((f) => {
-      const ext = f.name.split('.').pop()?.toLowerCase()
-      return ACCEPTED_TYPES.includes(ext)
+    const valid = []
+    const invalid = []
+
+    Array.from(rawFiles).forEach((f) => {
+      const ext = f.name.split('.').pop()?.toLowerCase() ?? ''
+      if (ACCEPTED_TYPES.includes(ext)) {
+        valid.push(f)
+      } else {
+        invalid.push({ name: f.name, ext, reason: `Unsupported file type: .${ext || '(none)'}. Supported: ${SUPPORTED_LABEL}` })
+      }
     })
+
     if (valid.length) onFiles(valid)
-  }, [onFiles])
+    if (invalid.length && onRejected) onRejected(invalid)
+  }, [onFiles, onRejected])
 
   const onDragOver = useCallback((e) => { e.preventDefault(); setDragging(true) }, [])
   const onDragLeave = useCallback((e) => { if (!e.currentTarget.contains(e.relatedTarget)) setDragging(false) }, [])
@@ -53,7 +63,7 @@ export function DropZone({ onFiles }) {
         <p className="text-xs text-slate-500">or click to browse your files</p>
         <div className="flex flex-wrap justify-center gap-1.5 pt-1">
           {ACCEPTED_TYPES.map((ext) => (
-            <span key={ext} className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-200/60 text-slate-600 uppercase border border-slate-200/60">
+            <span key={ext} className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-200/60 text-slate-600 uppercase border border-slate-200/60 tracking-wide">
               {ext}
             </span>
           ))}

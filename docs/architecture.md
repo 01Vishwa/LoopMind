@@ -12,13 +12,13 @@ The application is structured into three primary tiers:
 2. **Application Layer (FastAPI Backend)**
    The backend logic, written in Python 3.10+, routes tasks and heavily utilizes asynchronous I/O to ensure the high-latency LLM inference calls do not block the active process loop. FastAPI guarantees schema rigor via Pydantic.
 
-3. **Data & Observability Layer (Supabase)**
-   Used to persist complex relational telemetry data (agent cycles, inference times, generated context). Supabase ensures stateless backend environments can rapidly spin up and tear down.
+3. **Data & Observability Layer (Supabase + Eval Engine)**
+   Used to persist complex relational telemetry data (agent cycles, inference times, generated context). Supabase ensures stateless backend environments can rapidly spin up and tear down. The integrated `eval` framework judges run metrics and ensures pipeline efficiency.
 
 ## Component Interaction
 
-- **Client → Backend Router**: Standard REST API calls execute initial configuration (file uploads, initial validations).
-- **Backend Router → Orchestrator**: User prompts initiate a workflow inside the `DsStarOrchestrator`.
+- **Client → API Route**: Standard REST API calls execute initial configuration (file uploads, initial validations).
+- **API Route → Orchestrator**: User prompts initiate a workflow inside the `DsStarOrchestrator`.
 - **Orchestrator → Agents**: The orchestrator triggers individual LangChain-backed agent classes (`PlannerAgent`, `CoderAgent`), parsing specific prompt configurations and injecting available system metadata.
 - **Agent → LLM**: Queries are evaluated via LangChain connected exclusively to NVIDIA NIM endpoints.
 - **Orchestrator → Frontend**: While waiting for execution loops and code interpretation, the orchestrator emits strict Server-Sent Events (SSE) detailing its phase (e.g., `planning`, `executing`), including serialized string fragments and parsed tool messages.
