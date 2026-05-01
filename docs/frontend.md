@@ -1,6 +1,6 @@
 # Frontend Architecture
 
-LoopMind's frontend relies on a reactive, modern Single-Page Application (SPA) architecture constructed with Vite and React 19. The system emphasizes low-latency updates when managing long-lived server streaming events.
+Agentloop's frontend relies on a reactive, modern Single-Page Application (SPA) architecture constructed with Vite and React 19. The system emphasizes low-latency updates when managing long-lived server streaming events.
 
 ## Tech Stack
 

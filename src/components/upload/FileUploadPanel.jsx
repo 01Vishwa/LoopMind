@@ -8,8 +8,10 @@ export function FileUploadPanel({ files, onAddFiles, onRemoveFile, onClearAll })
   const handleRejected = useCallback((rejectedFiles) => {
     rejectedFiles.forEach((r) => toast(`"${r.name}" — ${r.reason}`, 'error'))
   }, [])
+
   return (
-    <div className="h-full flex flex-col gap-5 min-h-0">
+    <div className="h-full flex flex-col gap-4 min-h-0">
+
       {/* Header */}
       <div>
         <div className="flex items-center justify-between">
@@ -31,7 +33,9 @@ export function FileUploadPanel({ files, onAddFiles, onRemoveFile, onClearAll })
             </button>
           )}
         </div>
-        <p className="text-xs text-slate-500 mt-1 ml-10">Supported: CSV, TXT, XLSX, PDF, JSON, Markdown, Parquet</p>
+        <p className="text-xs text-slate-500 mt-1 ml-10">
+          Supported: CSV, TXT, XLSX, PDF, JSON, Markdown, Parquet
+        </p>
       </div>
 
       {/* Drop Zone */}

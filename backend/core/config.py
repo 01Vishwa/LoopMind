@@ -54,7 +54,12 @@ IDP_ALLOWED_FORMATS: Set[str] = set(ALLOWED_MIME_TYPES.keys())
 
 SUPABASE_URL: str = os.getenv("SUPABASE_URL", "")
 SUPABASE_PUBLISHABLE_KEY: str = os.getenv("SUPABASE_PUBLISHABLE_KEY", "")
-SUPABASE_BUCKET: str = os.getenv("SUPABASE_BUCKET", "loopmind-uploads")
+SUPABASE_BUCKET: str = os.getenv("SUPABASE_BUCKET", "agentloop-uploads")
+
+# JWT secret for server-side token verification.
+# Find at: Supabase Dashboard → Settings → API → JWT Settings → JWT Secret
+SUPABASE_JWT_SECRET: str = os.getenv("SUPABASE_JWT_SECRET", "")
+
 
 # ---------------------------------------------------------------------------
 # NVIDIA NIM configuration

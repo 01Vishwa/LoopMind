@@ -129,6 +129,8 @@ async def handle_agent_run(
     coder_model: Optional[str] = None,
     temperature: Optional[float] = None,
     http_request: Optional[Request] = None,
+    user_id: Optional[str] = None,
+    workspace_id: Optional[str] = None,
 ) -> AsyncGenerator[str, None]:
     """Streams DS-STAR agent events as Server-Sent Events.
 
@@ -142,6 +144,8 @@ async def handle_agent_run(
         temperature: Override for the LLM sampling temperature (0.0–1.0).
         http_request: FastAPI Request object — used to detect early client
             disconnection via a background monitor task (PERF-03).
+        user_id: Authenticated user ID.
+        workspace_id: Optional workspace ID to scope the run.
 
     Yields:
         SSE-formatted ``data: <json>\\n\\n`` lines.
@@ -153,7 +157,7 @@ async def handle_agent_run(
     orchestrator = _get_orchestrator(max_rounds, model, coder_model, temperature)
 
     # Persist new run row — non-blocking
-    await _try_create_run(run_id, _session_id, query, context)
+    await _try_create_run(run_id, _session_id, query, context, workspace_id)
 
     # Eval sidecar — passive observer, zero orchestration changes
     eval_logger = EvalLogger(run_id=run_id, query=query)
@@ -224,6 +228,7 @@ async def _try_create_run(
     session_id: str,
     query: str,
     context: Dict[str, Any],
+    workspace_id: Optional[str] = None,
 ) -> None:
     """Attempts to create an agent_runs row in Supabase.
 
@@ -232,6 +237,7 @@ async def _try_create_run(
         session_id: Client-provided session identifier (stored separately).
         query: User query.
         context: Processing context.
+        workspace_id: Optional workspace scope.
     """
     try:
         from services.supabase_service import create_agent_run  # pylint: disable=import-outside-toplevel
@@ -241,6 +247,7 @@ async def _try_create_run(
             session_id=session_id,
             query=query,
             file_names=file_names,
+            workspace_id=workspace_id,
         )
     except Exception as exc:  # pylint: disable=broad-except
         logger.warning("[AgentController] Could not persist run start: %s", exc)

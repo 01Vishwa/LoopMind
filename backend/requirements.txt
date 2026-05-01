@@ -5,9 +5,11 @@ pydantic>=2.6.4
 pandas>=2.2.3
 pyarrow>=16.0.0
 openpyxl>=3.1.2
+pypdf>=4.0.0
 pdfplumber>=0.11.0
 Markdown>=3.6
 supabase>=2.4.0
+PyJWT>=2.8.0
 python-dotenv>=1.0.0
 tenacity>=8.3.0
 sse-starlette>=2.1.0
@@ -27,13 +29,6 @@ python-magic-bin>=0.4.14
 
 # Embedding model for retrieval (PERF-01, PERF-02)
 sentence-transformers>=2.7.0
-
-# Redis rate limiting (deferred — requires Redis)
-# slowapi>=0.1.9
-# redis>=5.0.0
-
-# Celery SSE resilience (deferred — requires Redis)
-# celery[redis]>=5.4.0
 
 # Test suite
 pytest>=8.0.0

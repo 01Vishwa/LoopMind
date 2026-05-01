@@ -1,14 +1,21 @@
-import React from 'react'
-import { Cpu, Zap, GitBranch, BarChart2 } from 'lucide-react'
-import { Link } from 'react-router-dom'
+import React, { useState, useEffect } from 'react'
+import { Cpu, Zap, BarChart2, LogIn, LogOut, User, ArrowLeft } from 'lucide-react'
+import { Link, useParams, useNavigate } from 'react-router-dom'
 import { FileUploadPanel } from '../components/upload/FileUploadPanel'
 import { QueryInput } from '../components/query/QueryInput'
 import { AgentProgressPanel } from '../components/agent/AgentProgressPanel'
 import { HistoryPanel } from '../components/agent/HistoryPanel'
 import { AgentSettings } from '../components/agent/AgentSettings'
 import { ConfirmDialog } from '../components/shared/ConfirmDialog'
+import { AuthModal } from '../components/shared/AuthModal'
+import { useAuth } from '../contexts/AuthContext'
+import { useWorkspaceStore } from '../stores/workspaceStore'
 
 export function HomePage({ fileState, agentState }) {
+  const { projectId } = useParams()
+  const navigate = useNavigate()
+  const { workspaces, fetchWorkspaces, setActiveWorkspace, activeWorkspace } = useWorkspaceStore()
+
   const {
     files,
     pendingDuplicates,
@@ -44,6 +51,23 @@ export function HomePage({ fileState, agentState }) {
     showMetrics,
   } = agentState
 
+  const { user, isAuthenticated, signOut, loading: authLoading } = useAuth()
+  const [showAuthModal, setShowAuthModal] = useState(false)
+
+  // Sync workspace from URL parameter
+  useEffect(() => {
+    if (user?.id) {
+      if (workspaces.length === 0) {
+        fetchWorkspaces(user.id)
+      } else if (projectId) {
+        const ws = workspaces.find((w) => w.id === projectId)
+        if (ws && (!activeWorkspace || activeWorkspace.id !== projectId)) {
+          setActiveWorkspace(ws)
+        }
+      }
+    }
+  }, [user?.id, workspaces, projectId, fetchWorkspaces, setActiveWorkspace, activeWorkspace])
+
   const isProcessing = !['idle', 'completed', 'failed'].includes(agentStatus)
 
   return (
@@ -66,12 +90,19 @@ export function HomePage({ fileState, agentState }) {
       <header className="relative z-20 border-b border-slate-200/80 bg-white/70 backdrop-blur-md">
         <div className="max-w-[1600px] mx-auto px-6 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
+            <button
+              onClick={() => navigate('/projects')}
+              className="p-2 rounded-xl text-slate-500 hover:bg-slate-100 transition-colors duration-150 mr-2"
+              title="Back to Projects"
+            >
+              <ArrowLeft size={18} />
+            </button>
             <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-brand-500 to-violet-600
                             flex items-center justify-center shadow-md">
               <Cpu size={18} className="text-white" />
             </div>
             <div>
-              <span className="font-bold text-slate-800 text-base tracking-tight">LoopMind</span>
+              <span className="font-bold text-slate-800 text-base tracking-tight">Agentloop</span>
               <span className="ml-2 text-[10px] font-semibold px-1.5 py-0.5 rounded-full
                                bg-brand-50 text-brand-600 uppercase tracking-wider">
                 DS-STAR
@@ -81,11 +112,14 @@ export function HomePage({ fileState, agentState }) {
 
           <div className="hidden md:flex items-center gap-2 text-xs text-slate-500 font-medium">
             <Zap size={12} className="text-brand-500" />
-            DS-STAR · Plan → Code → Execute → Verify
+            Project: {activeWorkspace?.name || 'Loading...'}
           </div>
 
           <div className="flex items-center gap-3">
-            <Link to="/eval" className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-slate-200 text-[12px] font-semibold bg-white text-slate-700 shadow-sm hover:bg-slate-50 transition-colors">
+            <Link
+              to="/eval"
+              className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-slate-200 text-[12px] font-semibold bg-white text-slate-700 shadow-sm hover:bg-slate-50 transition-colors"
+            >
               <BarChart2 size={13} className="text-violet-600" />
             </Link>
 
@@ -96,14 +130,47 @@ export function HomePage({ fileState, agentState }) {
               placement="header"
             />
 
-            <a
-              href="https://github.com"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="btn-ghost px-3"
-            >
-              <GitBranch size={16} />
-            </a>
+
+
+            {/* ── Auth control ── */}
+            {!authLoading && (
+              isAuthenticated ? (
+                <div className="flex items-center gap-2">
+                  {/* User avatar chip */}
+                  <div
+                    id="user-avatar-chip"
+                    className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-slate-200
+                               bg-white text-[12px] font-medium text-slate-700 shadow-sm"
+                    title={user?.email}
+                  >
+                    <User size={13} className="text-brand-500" />
+                    <span className="hidden sm:block max-w-[120px] truncate">
+                      {user?.email?.split('@')[0]}
+                    </span>
+                  </div>
+                  {/* Sign out */}
+                  <button
+                    id="sign-out-btn"
+                    onClick={() => { signOut(); navigate('/'); }}
+                    className="btn-ghost px-3 text-[12px]"
+                    title="Sign out"
+                  >
+                    <LogOut size={15} />
+                  </button>
+                </div>
+              ) : (
+                <button
+                  id="sign-in-btn"
+                  onClick={() => setShowAuthModal(true)}
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-xl
+                             bg-brand-500 text-white text-[12px] font-semibold shadow-sm
+                             hover:bg-brand-600 transition-colors duration-150"
+                >
+                  <LogIn size={13} />
+                  Sign In
+                </button>
+              )
+            )}
           </div>
         </div>
       </header>
@@ -173,6 +240,13 @@ export function HomePage({ fileState, agentState }) {
         onConfirm={handleConfirmDuplicates}
         onCancel={() => {}}
       />
+
+      {/* Auth modal — mounted at page level to ensure correct z-index stacking */}
+      <AuthModal
+        isOpen={showAuthModal}
+        onClose={() => setShowAuthModal(false)}
+      />
     </div>
   )
 }
+

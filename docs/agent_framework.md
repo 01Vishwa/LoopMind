@@ -1,10 +1,10 @@
 # DS-STAR Agent Framework
 
 ## Definition of an Agent
-In the LoopMind codebase, an **agent** refers to an autonomous processing node dedicated to a specific logical phase of the Data Science lifecycle. Functionally, agents are instances that wrap LLM API calls (using specific NVIDIA NIM tier configurations such as `NIM_MODEL_PRO` or `NIM_MODEL_FLASH`) inside rigorous Pydantic-enforced generation loops (`.with_structured_output()`). This strict schema compliance ensures reliable hand-offs between separate nodes governed by the `DsStarOrchestrator`. Each agent acts in isolation, evaluating state context or telemetry (such as stack tracebacks from the execution sandbox) to execute distinct programmatic tasks.
+In the Agentloop codebase, an **agent** refers to an autonomous processing node dedicated to a specific logical phase of the Data Science lifecycle. Functionally, agents are instances that wrap LLM API calls (using specific NVIDIA NIM tier configurations such as `NIM_MODEL_PRO` or `NIM_MODEL_FLASH`) inside rigorous Pydantic-enforced generation loops (`.with_structured_output()`). This strict schema compliance ensures reliable hand-offs between separate nodes governed by the `DsStarOrchestrator`. Each agent acts in isolation, evaluating state context or telemetry (such as stack tracebacks from the execution sandbox) to execute distinct programmatic tasks.
 
 ## Agents List
-The LoopMind orchestration relies on the following dedicated agents. Click the hyperlinks for detailed descriptions of each agent's active model, local tools, orchestration function, and deployment patterns strictly relevant to this codebase.
+The Agentloop orchestration relies on the following dedicated agents. Click the hyperlinks for detailed descriptions of each agent's active model, local tools, orchestration function, and deployment patterns strictly relevant to this codebase.
 
 * **[FileAnalyzerAgent](./file_analyzer_agent.md)** - Translates unstructured datastores into schema and analytical contexts to be ingested by the system.
 * **[Retriever](./retriever.md)** - Intercepts massive corpora using local `sentence-transformers` vector math to gate and filter irrelevant files out of context bounds.

@@ -88,6 +88,10 @@ async def validate_file_metadata(
                 "text/x-json": "application/json",
             }
             normalised = _MIME_ALIASES.get(detected_mime, detected_mime)
+            
+            # Special fallback for text/plain because magic often detects CSV/JSON/MD simply as plain text
+            if detected_mime == "text/plain" and expected_mime in ["text/csv", "application/json", "text/markdown"]:
+                normalised = expected_mime
             if normalised != expected_mime:
                 return (
                     f"File content does not match declared type. "

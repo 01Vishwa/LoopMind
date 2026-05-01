@@ -20,13 +20,18 @@ ARCH-02 fix:
 
 ARCH-03 fix:
 - /agent/runs and /agent/runs/{run_id} now await the async Supabase service functions.
+
+AUTH fix:
+- Protected endpoints now require a valid Supabase JWT via Depends(get_current_user).
+- Optional auth (get_optional_user) is used where anonymous access is still valid.
+- user_id from the authenticated token is forwarded to service layers.
 """
 
 import time as _time
 from typing import Any, Dict, List, Optional
 import logging
 
-from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -37,6 +42,7 @@ from api.controllers.research_controller import handle_research_run
 from eval.eval_routes import eval_router
 from core.deep_research_orchestrator import is_open_ended
 from core.config import SESSION_TTL_SECONDS, MAX_SESSIONS
+from middleware.auth import AuthUser, get_current_user, get_optional_user
 from models.schemas import AgentRunRequest, UploadResponse
 
 logger = logging.getLogger("uvicorn.error")
@@ -60,12 +66,10 @@ _ANON_SESSION = "__anon__"
 def _evict_stale_sessions() -> None:
     """Removes sessions older than SESSION_TTL_SECONDS and enforces MAX_SESSIONS cap.
 
-    Called lazily on every session write. TTL eviction runs first, then the
-    size cap so freshly-written sessions are never immediately evicted.
+    Called lazily on every session write to avoid background threads.
     """
     now = _time.monotonic()
 
-    # TTL pass: remove entries that haven't been touched within the window
     stale = [
         k for k, ts in _session_timestamps.items()
         if now - ts > SESSION_TTL_SECONDS
@@ -76,7 +80,6 @@ def _evict_stale_sessions() -> None:
     if stale:
         logger.info("[Router] Evicted %d stale session(s) (TTL=%ds)", len(stale), SESSION_TTL_SECONDS)
 
-    # Size cap: evict oldest entries when over MAX_SESSIONS
     while len(_session_contexts) >= MAX_SESSIONS:
         oldest_key = min(_session_timestamps, key=lambda k: _session_timestamps[k])
         _session_contexts.pop(oldest_key, None)
@@ -99,6 +102,21 @@ def _set_session(key: str, data: Dict[str, Any]) -> None:
     _session_timestamps[key] = _time.monotonic()
 
 
+import asyncio
+
+@router.on_event("startup")
+async def start_session_eviction_loop():
+    """Starts a background loop to continuously evict stale sessions."""
+    async def eviction_loop():
+        while True:
+            await asyncio.sleep(60)
+            try:
+                _evict_stale_sessions()
+            except Exception as e:
+                logger.error("[Router] Eviction loop error: %s", e)
+    asyncio.create_task(eviction_loop())
+
+
 # ---------------------------------------------------------------------------
 # Request models
 # ---------------------------------------------------------------------------
@@ -118,13 +136,22 @@ class ProcessRequest(BaseModel):
 async def upload_files(
     files: List[UploadFile] = File(...),
     session_id: Optional[str] = Query(default=None),
+    auth: Optional[AuthUser] = Depends(get_optional_user),
 ) -> UploadResponse:
-    """Validates and persists uploaded files into the session-scoped cache."""
-    return await handle_upload(files, session_id=session_id or _ANON_SESSION)
+    """Validates and persists uploaded files into the session-scoped cache.
+
+    Accepts both authenticated and anonymous uploads; when a valid token
+    is present the user_id is available for downstream scoping.
+    """
+    user_id = auth.user_id if auth else None
+    return await handle_upload(files, session_id=session_id or _ANON_SESSION, user_id=user_id)
 
 
 @router.post("/process")
-async def process_batch(request: ProcessRequest) -> Dict[str, Any]:
+async def process_batch(
+    request: ProcessRequest,
+    auth: Optional[AuthUser] = Depends(get_optional_user),
+) -> Dict[str, Any]:
     """Processes cached files into normalised in-memory context.
 
     Merges results into the session's existing context rather than replacing
@@ -136,7 +163,6 @@ async def process_batch(request: ProcessRequest) -> Dict[str, Any]:
     existing = _session_contexts.get(session_key, {})
     new_details = result.get("details", {})
 
-    # Deep merge: combine combined_extractions from old and new
     merged_extractions = {
         **existing.get("combined_extractions", {}),
         **new_details.get("combined_extractions", {}),
@@ -146,7 +172,7 @@ async def process_batch(request: ProcessRequest) -> Dict[str, Any]:
         "combined_extractions": merged_extractions,
         "files_processed": len(merged_extractions),
     }
-    _set_session(session_key, merged)  # ARCH-02: write through eviction helper
+    _set_session(session_key, merged)
 
     return result
 
@@ -159,18 +185,19 @@ async def process_batch(request: ProcessRequest) -> Dict[str, Any]:
 async def agent_run(
     request: AgentRunRequest,
     http_request: Request,
+    auth: Optional[AuthUser] = Depends(get_optional_user),
 ) -> StreamingResponse:
     """Streams DS-STAR or DS-STAR+ agent events as Server-Sent Events.
 
     Automatically routes open-ended queries to the DS-STAR+ deep research loop.
-    ``http_request`` is passed to the controller so it can detect client
-    disconnection and abort the server-side loop early (Gap 5).
+    Authenticated requests carry user_id for run-level scoping in Supabase.
     """
     session_key = request.session_id or _ANON_SESSION
     context = _session_contexts.get(session_key, {})
+    user_id = auth.user_id if auth else None
 
     if is_open_ended(request.query):
-        logger.info("[Router] Open-ended query detected — dispatching to DS-STAR+")
+        logger.info("[Router] Open-ended query — dispatching to DS-STAR+")
         stream_handler = handle_research_run(
             query=request.query,
             context=context,
@@ -179,9 +206,11 @@ async def agent_run(
             model=request.model,
             coder_model=request.coder_model,
             temperature=request.temperature,
+            user_id=user_id,
+            workspace_id=request.workspace_id,
         )
     else:
-        logger.info("[Router] Specific query detected — dispatching to regular DS-STAR")
+        logger.info("[Router] Specific query — dispatching to regular DS-STAR")
         stream_handler = handle_agent_run(
             query=request.query,
             context=context,
@@ -191,6 +220,8 @@ async def agent_run(
             coder_model=request.coder_model,
             temperature=request.temperature,
             http_request=http_request,
+            user_id=user_id,
+            workspace_id=request.workspace_id,
         )
 
     return StreamingResponse(
@@ -209,19 +240,24 @@ async def agent_run(
 
 @router.get("/agent/runs")
 async def list_runs(
-    user_id: Optional[str] = Query(default=None),
     limit: int = Query(default=20, ge=1, le=100),
+    workspace_id: Optional[str] = Query(default=None),
+    auth: Optional[AuthUser] = Depends(get_optional_user),
 ) -> List[Dict[str, Any]]:
-    """Lists past agent runs from Supabase."""
+    """Lists past agent runs from Supabase, scoped to the authenticated user and workspace."""
     try:
         from services.supabase_service import list_agent_runs  # pylint: disable=import-outside-toplevel
-        return await list_agent_runs(limit=limit)
+        user_id = auth.user_id if auth else None
+        return await list_agent_runs(limit=limit, user_id=user_id, workspace_id=workspace_id)
     except Exception as exc:  # pylint: disable=broad-except
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @router.get("/agent/runs/{run_id}")
-async def get_run(run_id: str) -> Dict[str, Any]:
+async def get_run(
+    run_id: str,
+    auth: Optional[AuthUser] = Depends(get_optional_user),
+) -> Dict[str, Any]:
     """Retrieves a single agent run by its ID."""
     try:
         from services.supabase_service import get_agent_run  # pylint: disable=import-outside-toplevel
@@ -238,11 +274,46 @@ async def get_run(run_id: str) -> Dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
+# Workspace endpoints
+# ---------------------------------------------------------------------------
+
+@router.get("/workspaces")
+async def list_workspaces(
+    auth: AuthUser = Depends(get_current_user),
+) -> List[Dict[str, Any]]:
+    """Lists all workspaces owned by the authenticated user."""
+    try:
+        from services.supabase_service import list_workspaces as _list  # pylint: disable=import-outside-toplevel
+        return await _list(user_id=auth.user_id)
+    except Exception as exc:  # pylint: disable=broad-except
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/workspaces")
+async def create_workspace(
+    payload: Dict[str, Any],
+    auth: AuthUser = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """Creates a new workspace for the authenticated user."""
+    name = payload.get("name", "").strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="Workspace name is required.")
+    try:
+        from services.supabase_service import create_workspace as _create  # pylint: disable=import-outside-toplevel
+        return await _create(user_id=auth.user_id, name=name)
+    except Exception as exc:  # pylint: disable=broad-except
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+# ---------------------------------------------------------------------------
 # Cache management
 # ---------------------------------------------------------------------------
 
 @router.delete("/clear")
-async def clear_cache(session_id: Optional[str] = Query(default=None)) -> Dict[str, Any]:
+async def clear_cache(
+    session_id: Optional[str] = Query(default=None),
+    auth: Optional[AuthUser] = Depends(get_optional_user),
+) -> Dict[str, Any]:
     """Wipes the internal session processing context and byte caches."""
     session_key = session_id or _ANON_SESSION
     _session_contexts.pop(session_key, None)

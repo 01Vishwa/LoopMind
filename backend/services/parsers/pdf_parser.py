@@ -1,6 +1,6 @@
-"""PDF document parser (pdfplumber).
+"""PDF document parser (pypdf).
 
-Extracts text from PDF files using pdfplumber.
+Extracts text from PDF files using pypdf, which is pure python and avoids C extension issues.
 
 Fix: Renamed ``page_count`` → ``pages`` to match the key contract expected
 by FileAnalyzerAgent.  Also changed from a hard 10-page cap to a character-
@@ -11,7 +11,7 @@ aren't arbitrarily truncated at page 10.
 import io
 from typing import Any, Dict
 
-import pdfplumber
+import pypdf
 
 from core.validation import sanitize_text
 
@@ -37,17 +37,18 @@ def parse_pdf(file_name: str, file_content: bytes) -> Dict[str, Any]:
         page_count = 0
         total_chars = 0
 
-        with pdfplumber.open(io.BytesIO(file_content)) as pdf:
-            page_count = len(pdf.pages)
+        pdf_stream = io.BytesIO(file_content)
+        reader = pypdf.PdfReader(pdf_stream)
+        page_count = len(reader.pages)
 
-            for page in pdf.pages:
-                text = page.extract_text()
-                if text:
-                    content_accumulator.append(text)
-                    total_chars += len(text)
-                # Stop extracting once we have enough context
-                if total_chars >= _MAX_CHARS:
-                    break
+        for page in reader.pages:
+            text = page.extract_text()
+            if text:
+                content_accumulator.append(text)
+                total_chars += len(text)
+            # Stop extracting once we have enough context
+            if total_chars >= _MAX_CHARS:
+                break
 
         full_text = "\n".join(content_accumulator)
         sanitized = sanitize_text(full_text)
@@ -62,4 +63,4 @@ def parse_pdf(file_name: str, file_content: bytes) -> Dict[str, Any]:
             },
         }
     except Exception as exc:
-        raise ValueError(f"Failed to parse PDF via pdfplumber: {exc}") from exc
+        raise ValueError(f"Failed to parse PDF via pypdf: {exc}") from exc

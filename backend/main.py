@@ -6,20 +6,24 @@ cross-cutting concerns (error handling) are imported from dedicated modules.
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+import os
 
 from api.routes import router as api_router
 from middleware.error_handler import global_exception_handler
 
 
 app = FastAPI(
-    title="LoopMind Backend",
+    title="Agentloop Backend",
     description="Intelligent Document Processing API",
     version="1.0.0"
 )
 
+allowed_origins_env = os.getenv("ALLOWED_ORIGINS", "*")
+allowed_origins = [origin.strip() for origin in allowed_origins_env.split(",")] if allowed_origins_env else ["*"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

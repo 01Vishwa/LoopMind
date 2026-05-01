@@ -112,6 +112,7 @@ class AgentRunRequest(BaseModel):
 
     query: str
     session_id: Optional[str] = None
+    workspace_id: Optional[str] = None
     # ── Per-run LLM / agent customisation ─────────────────────────────────
     max_rounds: Optional[int] = None        # 1–10; overrides MAX_AGENT_ROUNDS
     model: Optional[str] = None             # reasoning model override

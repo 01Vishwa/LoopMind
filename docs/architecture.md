@@ -1,6 +1,6 @@
 # System Architecture
 
-LoopMind is developed utilizing a scalable, modern architecture combining a reactive User Interface with a highly async-focused Python backend, aimed at processing complex inference loops securely.
+Agentloop is developed utilizing a scalable, modern architecture combining a reactive User Interface with a highly async-focused Python backend, aimed at processing complex inference loops securely.
 
 ## High-Level System Design
 
@@ -26,7 +26,7 @@ The application is structured into three primary tiers:
 ## Data Flow Lifecycle
 
 > [!NOTE]
-> Ensuring a strict context barrier between untrusted dataset ingestion and secure LLM inference is critical. LoopMind implements a highly constrained sandbox protocol.
+> Ensuring a strict context barrier between untrusted dataset ingestion and secure LLM inference is critical. Agentloop implements a highly constrained sandbox protocol.
 
 1. **Multi-Modal Ingestion**: Clients upload data (CSV, TXT, images) to `/api/upload`.
 2. **Context Normalization**: The backend digests inputs via `FileAnalyzerAgent` and constructs an isolated memory context layout (`_processing_context`).
