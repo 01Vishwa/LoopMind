@@ -1,11 +1,11 @@
-# Dockerfile.sandbox — LoopMind Code Execution Sandbox
+# Dockerfile.sandbox — Agentloop Code Execution Sandbox
 #
 # Pre-built image for running DS-STAR generated Python scripts in isolation.
 # Activated by setting DOCKER_SANDBOX_ENABLED=true and DOCKER_SANDBOX_IMAGE
-# to the tag you build this image as (e.g. loopmind-sandbox:latest).
+# to the tag you build this image as (e.g. agentloop-sandbox:latest).
 #
 # Build:
-#   docker build -f Dockerfile.sandbox -t loopmind-sandbox:latest .
+#   docker build -f Dockerfile.sandbox -t agentloop-sandbox:latest .
 #
 # The container is always started with:
 #   --network none     (no outbound internet)

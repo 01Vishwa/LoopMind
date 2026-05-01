@@ -1,6 +1,6 @@
 # REST API Endpoints
 
-The LoopMind backend leverages FastAPI. All HTTP interactions are prefixed with `/api`.
+The Agentloop backend leverages FastAPI. All HTTP interactions are prefixed with `/api`.
 *(Note: Vite locally proxies frontend `/api` requests directly to `http://localhost:8000/api`)*
 
 ---

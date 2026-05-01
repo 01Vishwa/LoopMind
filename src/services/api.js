@@ -1,24 +1,63 @@
 /**
- * api.js — LoopMind Backend Service Layer
+ * api.js — Agentloop Backend Service Layer
  *
- * Wraps all FastAPI endpoints. The Vite dev proxy forwards /api/* → http://localhost:8000/api/*
- * so no hard-coded origin is needed here.
+ * Wraps all FastAPI endpoints. The Vite dev proxy forwards
+ * /api/* → http://localhost:8000/api/* so no hard-coded origin is needed.
  *
- * Gap 1 fix: All upload/process/clear calls now accept and forward a sessionId so
- * the backend can scope files to the correct session-scoped cache bucket.
+ * Auth interceptor: every exported function optionally accepts an
+ * `accessToken` string. When provided it is stamped into the
+ * Authorization: Bearer <token> header so the FastAPI auth middleware
+ * can verify the Supabase JWT and inject the authenticated user_id.
+ *
+ * Gap 1 fix: all upload/process/clear calls accept and forward a sessionId
+ * so the backend can scope files to the correct session-scoped cache bucket.
  */
 
 const BASE = '/api'
 
+// ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
+
 /**
- * Uploads one or more File objects to the backend /api/upload endpoint.
+ * Builds an Authorization header object when an access token is available.
  *
- * @param {Array}    files       - Array of file entry objects (with _raw File and id).
- * @param {Function} onProgress  - Progress callback per file id.
- * @param {string}   [sessionId] - Session identifier for file cache scoping.
+ * @param {string|null|undefined} accessToken
+ * @returns {Record<string, string>}
+ */
+function authHeader(accessToken) {
+  return accessToken ? { Authorization: `Bearer ${accessToken}` } : {}
+}
+
+/**
+ * Thin GET/DELETE helper with auth support.
+ *
+ * @param {string}            url
+ * @param {string|null}       accessToken
+ * @param {'GET'|'DELETE'}    [method='GET']
+ * @returns {Promise<Response>}
+ */
+async function _request(url, accessToken, method = 'GET') {
+  return fetch(url, {
+    method,
+    headers: { ...authHeader(accessToken) },
+  })
+}
+
+// ---------------------------------------------------------------------------
+// Upload
+// ---------------------------------------------------------------------------
+
+/**
+ * Uploads one or more File objects to /api/upload.
+ *
+ * @param {import('../types/index').FileEntry[]} files       - Array of file entry objects.
+ * @param {(id: number, pct: number) => void}   onProgress  - Progress callback per file id.
+ * @param {string}  [sessionId='']              - Session identifier for file cache scoping.
+ * @param {string|null} [accessToken=null]      - JWT for Authorization header.
  * @returns {Promise<{ accepted_files: object[], rejected_files: object[] }>}
  */
-export async function uploadFiles(files, onProgress, sessionId = '') {
+export async function uploadFiles(files, onProgress, sessionId = '', accessToken = null) {
   const formData = new FormData()
   files.forEach((file) => formData.append('files', file._raw, file.name))
 
@@ -31,15 +70,17 @@ export async function uploadFiles(files, onProgress, sessionId = '') {
     return { id: file.id, interval }
   })
 
-  // Append session_id as a query param so the backend stores files in the
-  // correct session bucket (two-level _FILE_CACHE fix for Gap 1).
   const url = sessionId
     ? `${BASE}/upload?session_id=${encodeURIComponent(sessionId)}`
     : `${BASE}/upload`
 
   let data
   try {
-    const res = await fetch(url, { method: 'POST', body: formData })
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { ...authHeader(accessToken) },
+      body: formData,
+    })
     if (!res.ok) {
       const err = await res.json().catch(() => ({ message: `HTTP ${res.status}` }))
       throw new Error(err.message || `Upload failed with status ${res.status}`)
@@ -59,17 +100,25 @@ export async function uploadFiles(files, onProgress, sessionId = '') {
   return data
 }
 
+// ---------------------------------------------------------------------------
+// Process
+// ---------------------------------------------------------------------------
+
 /**
- * Calls /api/process with the accepted filenames so the backend caches document context.
+ * Calls /api/process with accepted filenames so the backend caches context.
  *
- * @param {string[]} filenames  - List of filenames that were successfully uploaded.
- * @param {string}   [sessionId] - Session identifier for file cache scoping.
- * @returns {Promise<object>} Raw process response.
+ * @param {string[]}    filenames         - Filenames successfully uploaded.
+ * @param {string}      [sessionId='']    - Session identifier.
+ * @param {string|null} [accessToken=null] - JWT for Authorization header.
+ * @returns {Promise<object>}
  */
-export async function processFiles(filenames, sessionId = '') {
+export async function processFiles(filenames, sessionId = '', accessToken = null) {
   const res = await fetch(`${BASE}/process`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...authHeader(accessToken),
+    },
     body: JSON.stringify({ files: filenames, session_id: sessionId || undefined }),
   })
 
@@ -81,18 +130,22 @@ export async function processFiles(filenames, sessionId = '') {
   return res.json()
 }
 
+// ---------------------------------------------------------------------------
+// Clear cache
+// ---------------------------------------------------------------------------
+
 /**
- * Sends a DELETE request to /api/clear to wipe the backend's session-scoped
- * file cache and processing context, preventing memory leaks.
+ * Sends DELETE /api/clear to wipe the backend session-scoped file cache.
  *
- * @param {string} [sessionId] - Session to wipe. Only that session's data is removed.
+ * @param {string}      [sessionId='']    - Session to wipe.
+ * @param {string|null} [accessToken=null] - JWT for Authorization header.
  */
-export async function clearBackendCache(sessionId = '') {
+export async function clearBackendCache(sessionId = '', accessToken = null) {
   try {
     const url = sessionId
       ? `${BASE}/clear?session_id=${encodeURIComponent(sessionId)}`
       : `${BASE}/clear`
-    const res = await fetch(url, { method: 'DELETE' })
+    const res = await _request(url, accessToken, 'DELETE')
     if (!res.ok) {
       console.warn(`Cache wipe failed with status ${res.status}`)
     }

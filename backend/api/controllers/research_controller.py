@@ -94,6 +94,8 @@ async def handle_research_run(
     coder_model: Optional[str] = None,
     temperature: Optional[float] = None,
     max_workers: Optional[int] = None,
+    user_id: Optional[str] = None,
+    workspace_id: Optional[str] = None,
 ) -> AsyncGenerator[str, None]:
     """Streams DS-STAR+ research events as Server-Sent Events.
 
@@ -106,6 +108,8 @@ async def handle_research_run(
         coder_model: Override for the code-generation LLM model.
         temperature: Override for the LLM sampling temperature (0.0–1.0).
         max_workers: Override for max parallel DS-STAR sub-runs.
+        user_id: Authenticated user ID.
+        workspace_id: Optional workspace scope.
 
     Yields:
         SSE-formatted ``data: <json>\\n\\n`` lines.
@@ -119,7 +123,7 @@ async def handle_research_run(
     )
 
     # Persist report row before streaming starts
-    await _try_create_report(report_id, _session_id, query, context)
+    await _try_create_report(report_id, _session_id, query, context, workspace_id)
 
     # Emit report_id to frontend immediately
     yield f"data: {json.dumps({'event': 'report_started', 'payload': {'report_id': report_id}})}\n\n"
@@ -186,6 +190,7 @@ async def _try_create_report(
     session_id: str,
     query: str,
     context: Dict[str, Any],
+    workspace_id: Optional[str] = None,
 ) -> None:
     """Creates a new reports row with status=running."""
     try:
@@ -196,6 +201,7 @@ async def _try_create_report(
             query=query,
             file_names=file_names,
             session_id=session_id,
+            workspace_id=workspace_id,
         )
     except Exception as exc:  # pylint: disable=broad-except
         logger.warning(

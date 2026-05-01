@@ -1,1 +1,1 @@
-"""Services package for LoopMind backend."""
+"""Services package for Agentloop backend."""

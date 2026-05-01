@@ -1,1 +1,1 @@
-"""Middleware package for LoopMind backend."""
+"""Middleware package for Agentloop backend."""

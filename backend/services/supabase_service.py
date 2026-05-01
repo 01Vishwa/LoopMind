@@ -162,6 +162,8 @@ async def create_agent_run(
     query: str,
     file_names: List[str],
     session_id: str = "",
+    user_id: Optional[str] = None,
+    workspace_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Creates a new row in the ``agent_runs`` table with status=running.
 
@@ -170,6 +172,8 @@ async def create_agent_run(
         query (str): The user query that triggered the run.
         file_names (List[str]): Names of files in the processing context.
         session_id (str): Optional client session identifier.
+        user_id (Optional[str]): Authenticated user UUID (from Supabase JWT).
+        workspace_id (Optional[str]): Workspace UUID to associate this run.
 
     Returns:
         Dict[str, Any]: The inserted row.
@@ -182,6 +186,8 @@ async def create_agent_run(
         record = {
             "id": run_id,
             "session_id": session_id or None,
+            "user_id": user_id or None,
+            "workspace_id": workspace_id or None,
             "query": query,
             "file_names": file_names,
             "status": "running",
@@ -192,7 +198,7 @@ async def create_agent_run(
             response = client.table("agent_runs").insert(record).execute()
             if not response.data:
                 raise RuntimeError(f"Failed to create agent_run record: {run_id}")
-            logger.info("Created agent_run — id=%s", run_id)
+            logger.info("Created agent_run — id=%s, user_id=%s", run_id, user_id)
             return response.data[0]
         except Exception as exc:  # pylint: disable=broad-except
             logger.warning("Could not create agent_run (schema missing?): %s", exc)
@@ -278,11 +284,19 @@ async def get_agent_run(run_id: str) -> Dict[str, Any]:
     return await asyncio.get_running_loop().run_in_executor(None, _sync)
 
 
-async def list_agent_runs(limit: int = 20) -> List[Dict[str, Any]]:
-    """Fetches the most recent agent_run rows.
+async def list_agent_runs(
+    limit: int = 20,
+    user_id: Optional[str] = None,
+    workspace_id: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """Fetches the most recent agent_run rows, optionally scoped to a user and workspace.
 
     Args:
         limit (int): Maximum number of rows to return.
+        user_id (Optional[str]): When provided, filters runs to this user only.
+            This respects the RLS policy on the table — only the owner's rows
+            are returned. When None, falls back to RLS (which uses auth.uid()).
+        workspace_id (Optional[str]): When provided, filters runs to this workspace only.
 
     Returns:
         List[Dict[str, Any]]: Agent run rows ordered newest first.
@@ -290,13 +304,17 @@ async def list_agent_runs(limit: int = 20) -> List[Dict[str, Any]]:
     def _sync() -> List[Dict[str, Any]]:
         client = get_supabase_client()
         try:
-            response = (
+            query = (
                 client.table("agent_runs")
-                .select("id, query, file_names, rounds, status, created_at, completed_at, eval_metrics")
+                .select("id, query, file_names, rounds, status, created_at, completed_at, eval_metrics, user_id, workspace_id")
                 .order("created_at", desc=True)
                 .limit(limit)
-                .execute()
             )
+            if user_id:
+                query = query.eq("user_id", user_id)
+            if workspace_id:
+                query = query.eq("workspace_id", workspace_id)
+            response = query.execute()
             return response.data or []
         except Exception as exc:  # pylint: disable=broad-except
             logger.warning("Could not list agent_runs (schema missing?): %s", exc)
@@ -516,3 +534,64 @@ async def update_report_status(
             )
 
     await asyncio.get_running_loop().run_in_executor(None, _sync)
+
+
+# ---------------------------------------------------------------------------
+# Workspace operations
+# ---------------------------------------------------------------------------
+
+
+async def list_workspaces(user_id: str) -> List[Dict[str, Any]]:
+    """Fetches all workspaces owned by ``user_id``.
+
+    Args:
+        user_id (str): Authenticated user UUID.
+
+    Returns:
+        List[Dict[str, Any]]: Workspace rows ordered by creation date.
+    """
+    def _sync() -> List[Dict[str, Any]]:
+        client = get_supabase_client()
+        try:
+            response = (
+                client.table("workspaces")
+                .select("*")
+                .eq("user_id", user_id)
+                .order("created_at", ascending=True)
+                .execute()
+            )
+            return response.data or []
+        except Exception as exc:  # pylint: disable=broad-except
+            logger.warning("[Supabase] Could not list workspaces for user %s: %s", user_id, exc)
+            return []
+
+    return await asyncio.get_running_loop().run_in_executor(None, _sync)
+
+
+async def create_workspace(user_id: str, name: str) -> Dict[str, Any]:
+    """Creates a new workspace row in the ``workspaces`` table.
+
+    Args:
+        user_id (str): Authenticated user UUID.
+        name (str): Workspace display name.
+
+    Returns:
+        Dict[str, Any]: The inserted workspace row.
+
+    Raises:
+        RuntimeError: If the insert fails.
+    """
+    def _sync() -> Dict[str, Any]:
+        client = get_supabase_client()
+        record = {"user_id": user_id, "name": name}
+        try:
+            response = client.table("workspaces").insert(record).select().execute()
+            if not response.data:
+                raise RuntimeError(f"Failed to create workspace for user {user_id}")
+            logger.info("[Supabase] Created workspace '%s' for user %s", name, user_id)
+            return response.data[0]
+        except Exception as exc:  # pylint: disable=broad-except
+            logger.warning("[Supabase] Could not create workspace: %s", exc)
+            raise RuntimeError(str(exc)) from exc
+
+    return await asyncio.get_running_loop().run_in_executor(None, _sync)

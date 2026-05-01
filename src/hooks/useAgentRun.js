@@ -4,24 +4,29 @@
  * Manages the full live state of an agent run: phase, plan steps,
  * execution logs, generated code, streaming events, artifacts, and
  * historical run replay.
+ *
+ * Auth integration: reads the current access token from AuthContext and
+ * stamps it onto every agent run and history API call.
  */
 
 import { useState, useCallback, useRef } from 'react'
 import { toast } from '../components/shared/Toast'
 import { createCancellableStream } from '../services/agentApi'
 import { DEFAULT_SETTINGS } from '../components/agent/AgentSettings'
+import { useAuth } from '../contexts/AuthContext'
+import { useWorkspaceStore } from '../stores/workspaceStore'
 
 // Always use the Vite dev proxy path — never hardcode the backend port.
-// This avoids CORS issues and matches the agentApi.js convention.
 const API_BASE = '/api'
 
 /**
  * Provides live DS-STAR agent state and a submit handler.
  *
- * @param {Array} files - Current file list (used to gate submissions).
+ * @param {Array}  files     - Current file list (used to gate submissions).
  * @returns {Object} Agent state and control functions.
  */
 export function useAgentRun(files) {
+  const { activeWorkspace } = useWorkspaceStore()
   const [agentStatus, setAgentStatus] = useState('idle')
   const [phase, setPhase] = useState('idle')
   const [planSteps, setPlanSteps] = useState([])
@@ -35,41 +40,59 @@ export function useAgentRun(files) {
   const [historyRuns, setHistoryRuns] = useState([])
   const [historyLoading, setHistoryLoading] = useState(false)
   const [settings, setSettings] = useState({ ...DEFAULT_SETTINGS })
-  const [activeRunId, setActiveRunId] = useState(null)   // run_id from backend
+  const [activeRunId, setActiveRunId] = useState(null)
   // Evaluation metrics (from 'metrics' SSE event)
   const [runMetrics, setRunMetrics] = useState(null)
   const [totalRunMs, setTotalRunMs] = useState(0)
   const [complexity, setComplexity] = useState('easy')
   const [showMetrics, setShowMetrics] = useState(false)
-  
+
   // Deep Research mode state
   const [isResearchMode, setIsResearchMode] = useState(false)
   const [subQuestions, setSubQuestions] = useState([])
   const [researchReport, setResearchReport] = useState(null)
-  
+
   const abortRef = useRef(false)
   const stepTimeoutsRef = useRef([])
-  // Holds the { abort } handle returned by createCancellableStream.
-  // Calling streamRef.current?.abort() stops the fetch AND signals the server.
   const streamRef = useRef(null)
+
+  // Auth token — fetched fresh on each call to always use the latest session
+  const { getAccessToken } = useAuth()
 
   const addLog = useCallback((text, type = 'info') => {
     setExecutionLogs((prev) => [...prev, { text, type, ts: Date.now() }])
   }, [])
 
-  // ── SSE event dispatcher ────────────────────────────────────────────────
+  // ── History: fetch run list ───────────────────────────────────────────────
+  const fetchHistory = useCallback(async (limit = 20) => {
+    setHistoryLoading(true)
+    try {
+      const token = getAccessToken()
+      const wsParam = activeWorkspace?.id ? `&workspace_id=${activeWorkspace.id}` : ''
+      const res = await fetch(`${API_BASE}/agent/runs?limit=${limit}${wsParam}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const data = await res.json()
+      setHistoryRuns(data)
+    } catch (err) {
+      toast('Could not load history: ' + err.message, 'error')
+    } finally {
+      setHistoryLoading(false)
+    }
+  }, [getAccessToken, activeWorkspace?.id])
+
+  // ── SSE event dispatcher ─────────────────────────────────────────────────
   const handleAgentEvent = useCallback((event) => {
     if (abortRef.current) return
     const { event: type, payload } = event
 
     switch (type) {
       case 'run_started':
-        // Backend confirmed run created — store the run_id for later
         setActiveRunId(payload?.run_id || null)
         break
 
       case 'report_started':
-        // DS-STAR+ deep research run started — use report_id as the active run identifier
         setActiveRunId(payload?.report_id || null)
         break
 
@@ -126,7 +149,6 @@ export function useAgentRun(files) {
         if (payload.stdout) addLog(payload.stdout.trim(), 'success')
         if (payload.stderr) addLog('[stderr] ' + payload.stderr.trim(), 'error')
 
-        // Store execution timing on the active step (usually currentRound - 1)
         if (payload.executor_ms) {
           setPlanSteps((prev) => {
             const copy = [...prev]
@@ -138,7 +160,6 @@ export function useAgentRun(files) {
         }
         break
 
-      // ── Artifact pipeline (fix #4) ──────────────────────────────────────
       case 'artifact':
         setArtifacts((prev) => [...prev, {
           name: payload.name,
@@ -166,7 +187,6 @@ export function useAgentRun(files) {
         } else {
           addLog(`[Verifier] ✗ Insufficient — ${payload.reason}`, 'warn')
         }
-        // Store verifier timing
         if (payload.verifier_ms) {
           setPlanSteps((prev) => {
             const copy = [...prev]
@@ -209,7 +229,7 @@ export function useAgentRun(files) {
         addLog('[Finalizer] ✓ ' + payload.message, 'success')
         break
 
-      // ── Deep Research Events ──
+      // ── Deep Research Events ───────────────────────────────────────────
       case 'research_started':
         setIsResearchMode(true)
         setPhase('analyzing')
@@ -228,9 +248,9 @@ export function useAgentRun(files) {
         break
 
       case 'subquestions_ready':
-        setSubQuestions((payload.sub_questions || []).map(q => ({
+        setSubQuestions((payload.sub_questions || []).map((q) => ({
           question: q,
-          status: 'pending'
+          status: 'pending',
         })))
         addLog(`[Decomposer] ✓ ${payload.message}`, 'success')
         break
@@ -242,12 +262,16 @@ export function useAgentRun(files) {
         break
 
       case 'subquestion_started':
-        setSubQuestions(prev => prev.map((q, i) => i === payload.index ? { ...q, status: 'running' } : q))
+        setSubQuestions((prev) => prev.map((q, i) =>
+          i === payload.index ? { ...q, status: 'running' } : q
+        ))
         addLog(payload.message, 'info')
         break
 
       case 'subquestion_complete':
-        setSubQuestions(prev => prev.map((q, i) => i === payload.index ? { ...q, status: payload.status } : q))
+        setSubQuestions((prev) => prev.map((q, i) =>
+          i === payload.index ? { ...q, status: payload.status } : q
+        ))
         addLog(payload.message, payload.status === 'completed' ? 'success' : 'warn')
         break
 
@@ -270,7 +294,7 @@ export function useAgentRun(files) {
           report_body: payload.report_body,
           key_findings: payload.key_findings || [],
           caveats: payload.caveats || [],
-          total_ms: payload.total_ms || 0
+          total_ms: payload.total_ms || 0,
         })
         addLog('[DeepResearch] ✓ ' + payload.message, 'success')
         toast('Deep Research complete!', 'success')
@@ -294,35 +318,33 @@ export function useAgentRun(files) {
           rounds: payload.rounds,
           execution_logs: payload.execution_logs,
         })
-        
+
         if (payload.plan_steps) {
-          const isVerified = payload.insights?.bullets?.some(b => b.includes('✓ Approved'));
-          setPlanSteps(payload.plan_steps);
-          
+          const isVerified = payload.insights?.bullets?.some((b) => b.includes('✓ Approved'))
+          setPlanSteps(payload.plan_steps)
+
           if (isVerified) {
             payload.plan_steps.forEach((step, index) => {
               const tid = setTimeout(() => {
-                if (abortRef.current) return;
+                if (abortRef.current) return
                 setPlanSteps((prev) => {
-                  const updated = [...prev];
+                  const updated = [...prev]
                   if (updated[index]) {
-                    updated[index] = { ...updated[index], status: 'done' };
+                    updated[index] = { ...updated[index], status: 'done' }
                   }
-                  return updated;
-                });
-              }, (index + 1) * 300);
-              stepTimeoutsRef.current.push(tid);
-            });
+                  return updated
+                })
+              }, (index + 1) * 300)
+              stepTimeoutsRef.current.push(tid)
+            })
           }
         }
-        
+
         addLog(`[DS-STAR] ✓ Completed in ${payload.rounds} round(s).`, 'success')
         toast('DS-STAR analysis complete!', 'success')
-        // Auto-refresh history so the new run appears immediately
         setTimeout(() => fetchHistory(), 1500)
         break
 
-      // ── Evaluation metrics (new) ────────────────────────────────────────
       case 'metrics':
         setRunMetrics(payload.metrics || null)
         setTotalRunMs(payload.total_run_ms || 0)
@@ -343,22 +365,19 @@ export function useAgentRun(files) {
         setAgentStatus('failed')
         addLog('[✗] ' + payload.message, 'error')
         toast(`Agent error: ${payload.message}`, 'error')
-        // Refresh history so failed run shows with correct badge
         setTimeout(() => fetchHistory(), 1500)
         break
 
       case 'stream_end':
-        if (agentStatus !== 'completed') {
-          setAgentStatus((s) => (s === 'failed' ? s : 'completed'))
-        }
+        setAgentStatus((s) => (s === 'failed' || s === 'completed' ? s : 'completed'))
         break
 
       default:
         break
     }
-  }, [addLog, agentStatus])
+  }, [addLog, fetchHistory])
 
-  // ── Submit handler ──────────────────────────────────────────────────────
+  // ── Submit handler ────────────────────────────────────────────────────────
   const handleSubmit = useCallback(
     async (query, sessionId = '') => {
       const uploadedFiles = files.filter((f) => f.progress === 100)
@@ -380,7 +399,7 @@ export function useAgentRun(files) {
       setCurrentRound(0)
       setOutput(null)
       setVerifierFeedback(null)
-      setActiveRunId(null)  // clear previous run_id
+      setActiveRunId(null)
       setIsResearchMode(false)
       setSubQuestions([])
       setResearchReport(null)
@@ -390,35 +409,37 @@ export function useAgentRun(files) {
       // Cancel any in-flight stream before starting a new one
       streamRef.current?.abort()
 
+      // Fetch token fresh — it may have been refreshed since last render
+      const token = getAccessToken()
+
       const { promise, abort } = createCancellableStream(
         query,
         handleAgentEvent,
         sessionId,
         settings,
+        token,
+        activeWorkspace?.id || null,
       )
       streamRef.current = { abort }
 
       try {
         await promise
       } catch (err) {
-        if (err?.name === 'AbortError') return   // user cancelled — not an error
+        if (err?.name === 'AbortError') return
         setAgentStatus('failed')
         setPhase('error')
         addLog('[✗] Stream error: ' + err.message, 'error')
         toast(`Agent failed: ${err.message}`, 'error')
       }
     },
-    // 'settings' and 'sessionId' MUST be in deps to avoid stale closures.
-    [files, settings, handleAgentEvent, addLog],
+    [files, settings, handleAgentEvent, addLog, getAccessToken, activeWorkspace?.id],
   )
 
-  // ── Reset handler ───────────────────────────────────────────────────────
+  // ── Reset handler ─────────────────────────────────────────────────────────
   const handleReset = useCallback(() => {
     stepTimeoutsRef.current.forEach(clearTimeout)
     stepTimeoutsRef.current = []
 
-    // Abort the in-flight SSE stream — this signals AbortController.abort(),
-    // which closes the fetch AND triggers the server's is_disconnected() check.
     streamRef.current?.abort()
     streamRef.current = null
 
@@ -441,29 +462,17 @@ export function useAgentRun(files) {
     setResearchReport(null)
   }, [])
 
-  // ── History: fetch run list (fix #6) ────────────────────────────────────
-  const fetchHistory = useCallback(async (limit = 20) => {
-    setHistoryLoading(true)
-    try {
-      const res = await fetch(`${API_BASE}/agent/runs?limit=${limit}`)
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const data = await res.json()
-      setHistoryRuns(data)
-    } catch (err) {
-      toast('Could not load history: ' + err.message, 'error')
-    } finally {
-      setHistoryLoading(false)
-    }
-  }, [])
-
-  // ── History: restore a past run (fix #6) ────────────────────────────────
+  // ── History: restore a past run ───────────────────────────────────────────
   const loadRun = useCallback(async (runId) => {
     try {
-      const res = await fetch(`${API_BASE}/agent/runs/${runId}`)
+      const token = getAccessToken()
+      const res = await fetch(`${API_BASE}/agent/runs/${runId}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const run = await res.json()
 
-      abortRef.current = true      // halt any live stream
+      abortRef.current = true
       setAgentStatus('completed')
       setPhase('completed')
       setPlanSteps(run.plan_steps || [])
@@ -472,7 +481,7 @@ export function useAgentRun(files) {
         (run.execution_logs || []).map((t) => ({ text: t, type: 'info', ts: 0 })),
       )
       setCurrentRound(run.rounds || 0)
-      setArtifacts([])             // artifacts not stored in Supabase yet
+      setArtifacts([])
       setOutput({
         insights: run.insights || {},
         code: { Python: run.final_code || '' },
@@ -488,7 +497,7 @@ export function useAgentRun(files) {
     } catch (err) {
       toast('Could not load run: ' + err.message, 'error')
     }
-  }, [])
+  }, [getAccessToken])
 
   return {
     agentStatus,

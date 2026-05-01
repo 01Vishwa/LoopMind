@@ -211,6 +211,12 @@ class CodeExecutor:
                         "[Executor] Could not write cached file %s: %s", filename, exc
                     )
 
+            # Record files present before execution
+            exclude_files = {"ds_star_script.py"}
+            for root, _, files in os.walk(tmpdir):
+                for fname in files:
+                    exclude_files.add(os.path.relpath(os.path.join(root, fname), tmpdir))
+
             script_path = os.path.join(tmpdir, "ds_star_script.py")
             # Prepend a sys.path injection so the subprocess inherits the
             # exact same package search paths as the parent FastAPI process.
@@ -266,8 +272,8 @@ class CodeExecutor:
                     returncode=1,
                 )
 
-            # Collect artifact files from outputs/
-            result.artifacts = _collect_artifacts(outputs_dir)
+            # Collect artifact files from tmpdir
+            result.artifacts = _collect_artifacts(tmpdir, exclude_files)
 
             logger.info(
                 "[Executor] Done — success=%s, stdout=%d chars, stderr=%d chars, artifacts=%d",
@@ -331,6 +337,12 @@ class CodeExecutor:
                 with open(os.path.join(tmpdir, filename), "wb") as fh:
                     fh.write(content)
 
+            # Record files present before execution
+            exclude_files = {"ds_star_script.py"}
+            for root, _, files in os.walk(tmpdir):
+                for fname in files:
+                    exclude_files.add(os.path.relpath(os.path.join(root, fname), tmpdir))
+
             sys_path_preamble = (
                 "import sys as _sys\n"
                 f"_sys.path[:0] = {sys.path!r}\n\n"
@@ -371,7 +383,7 @@ class CodeExecutor:
                 returncode = 1
 
             result = ExecutionResult(stdout=stdout, stderr=stderr, returncode=returncode)
-            result.artifacts = _collect_artifacts(outputs_dir)
+            result.artifacts = _collect_artifacts(tmpdir, exclude_files)
 
             logger.info(
                 "[Executor] Docker done — success=%s, artifacts=%d",
@@ -385,31 +397,38 @@ class CodeExecutor:
 # Artifact collection
 # ---------------------------------------------------------------------------
 
-def _collect_artifacts(outputs_dir: str) -> Dict[str, str]:
-    """Reads every file in ``outputs_dir`` and base64-encodes it.
+def _collect_artifacts(base_dir: str, exclude_files: set) -> Dict[str, str]:
+    """Reads every new file in ``base_dir`` and base64-encodes it.
 
     Args:
-        outputs_dir: Absolute path to the outputs directory.
+        base_dir: Absolute path to the working directory.
+        exclude_files: Set of relative file paths to ignore.
 
     Returns:
         Dict mapping filename (no path) → base64-encoded string.
     """
     artifacts: Dict[str, str] = {}
-    if not os.path.isdir(outputs_dir):
+    if not os.path.isdir(base_dir):
         return artifacts
 
-    for fname in os.listdir(outputs_dir):
-        fpath = os.path.join(outputs_dir, fname)
-        if not os.path.isfile(fpath):
-            continue
-        try:
-            with open(fpath, "rb") as fh:
-                artifacts[fname] = base64.b64encode(fh.read()).decode("utf-8")
-            logger.info("[Executor] Collected artifact: %s", fname)
-        except Exception as exc:  # pylint: disable=broad-except
-            logger.warning(
-                "[Executor] Could not read artifact %s: %s", fname, exc
-            )
+    for root, _, files in os.walk(base_dir):
+        for fname in files:
+            fpath = os.path.join(root, fname)
+            relpath = os.path.relpath(fpath, base_dir)
+            if relpath in exclude_files:
+                continue
+            if not os.path.isfile(fpath):
+                continue
+            try:
+                with open(fpath, "rb") as fh:
+                    # normalise path separators for the frontend
+                    safe_name = relpath.replace(os.sep, "/")
+                    artifacts[safe_name] = base64.b64encode(fh.read()).decode("utf-8")
+                logger.info("[Executor] Collected artifact: %s", safe_name)
+            except Exception as exc:  # pylint: disable=broad-except
+                logger.warning(
+                    "[Executor] Could not read artifact %s: %s", safe_name, exc
+                )
 
     return artifacts
 

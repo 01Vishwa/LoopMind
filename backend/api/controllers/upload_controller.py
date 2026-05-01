@@ -5,7 +5,7 @@ validates metadata, delegates persistence to upload_service,
 and builds the structured UploadResponse.
 """
 
-from typing import List
+from typing import List, Optional
 
 from fastapi import UploadFile
 
@@ -17,6 +17,7 @@ from services.upload_service import save_upload_file
 async def handle_upload(
     files: List[UploadFile],
     session_id: str = "__anon__",
+    user_id: Optional[str] = None,
 ) -> UploadResponse:
     """Orchestrates validation and persistence for a batch of uploaded files.
 
@@ -24,6 +25,7 @@ async def handle_upload(
         files: Multipart file payloads from the request.
         session_id: Session identifier used to bucket files in the in-memory
             cache.  Ensures files from different users never collide.
+        user_id: Optional authenticated user identifier.
 
     Returns:
         UploadResponse: Lists of accepted and rejected FileStatusItems.
