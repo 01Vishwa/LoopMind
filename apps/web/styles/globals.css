@@ -1,0 +1,421 @@
+/* ============================================================
+   VERA — Global Styles & Design System Tokens
+   ============================================================ */
+
+/* Fonts are loaded exclusively via next/font/google in app/layout.tsx
+   and exposed as the CSS variables --font-sans / --font-mono. */
+
+/* ── Tailwind base ─────────────────────────────────────────── */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Design tokens (DARK by default — lab-notebook aesthetic) ──
+   Single source of truth: each token is a space-separated RGB
+   channel triple (`R G B`) consumed by Tailwind as
+   `rgb(var(--vera-*-rgb) / <alpha-value>)`, so every opacity,
+   ring, divide and hover utility stays theme-aware.
+   The `--vera-*` aliases below wrap the channels back into a
+   usable color for raw `var(--vera-*)` references in CSS/inline
+   styles. */
+:root {
+  /* Base surfaces */
+  --vera-ink-rgb:            226 226 238;
+  --vera-paper-rgb:          13 13 23;
+  --vera-surface-rgb:        19 19 31;
+  --vera-surface-2-rgb:      26 26 42;
+  --vera-muted-rgb:          107 107 138;
+  --vera-subtle-rgb:         144 144 168;
+
+  /* Borders */
+  --vera-border-rgb:         37 37 56;
+  --vera-border-subtle-rgb:  30 30 48;
+  --vera-border-strong-rgb:  58 58 85;
+
+  /* Accent — electric indigo (#6366F1 → hover #4F46E5) */
+  --vera-accent-rgb:         99 102 241;
+  --vera-accent-hover-rgb:   79 70 229;
+  --vera-accent-muted-rgb:   30 30 64;
+
+  /* Semantic colors */
+  --vera-verified-rgb:       16 185 129;
+  --vera-verified-muted-rgb: 5 46 28;
+  --vera-insufficient-rgb:   244 63 94;
+  --vera-insufficient-muted-rgb: 45 10 20;
+  --vera-backtrack-rgb:      245 158 11;
+  --vera-backtrack-muted-rgb: 45 26 0;
+  --vera-warning-rgb:        251 146 60;
+  --vera-warning-muted-rgb:  45 18 0;
+
+  /* Code pane — Catppuccin Mocha */
+  --vera-code-bg-rgb:        17 17 27;
+  --vera-code-bg-2-rgb:      24 24 37;
+  --vera-code-fg-rgb:        205 214 244;
+  --vera-code-border-rgb:    42 42 63;
+
+  /* ── Color aliases (for raw `var(--vera-*)` usage) ── */
+  --vera-ink:            rgb(var(--vera-ink-rgb));
+  --vera-paper:          rgb(var(--vera-paper-rgb));
+  --vera-surface:        rgb(var(--vera-surface-rgb));
+  --vera-surface-2:      rgb(var(--vera-surface-2-rgb));
+  --vera-muted:          rgb(var(--vera-muted-rgb));
+  --vera-subtle:         rgb(var(--vera-subtle-rgb));
+  --vera-border:         rgb(var(--vera-border-rgb));
+  --vera-border-subtle:  rgb(var(--vera-border-subtle-rgb));
+  --vera-border-strong:  rgb(var(--vera-border-strong-rgb));
+  --vera-accent:         rgb(var(--vera-accent-rgb));
+  --vera-accent-hover:   rgb(var(--vera-accent-hover-rgb));
+  --vera-accent-muted:   rgb(var(--vera-accent-muted-rgb));
+  --vera-accent-glow:    rgb(var(--vera-accent-rgb) / 0.15);
+  --vera-verified:       rgb(var(--vera-verified-rgb));
+  --vera-verified-muted: rgb(var(--vera-verified-muted-rgb));
+  --vera-insufficient:   rgb(var(--vera-insufficient-rgb));
+  --vera-insufficient-muted: rgb(var(--vera-insufficient-muted-rgb));
+  --vera-backtrack:      rgb(var(--vera-backtrack-rgb));
+  --vera-backtrack-muted: rgb(var(--vera-backtrack-muted-rgb));
+  --vera-warning:        rgb(var(--vera-warning-rgb));
+  --vera-warning-muted:  rgb(var(--vera-warning-muted-rgb));
+  --vera-code-bg:        rgb(var(--vera-code-bg-rgb));
+  --vera-code-bg-2:      rgb(var(--vera-code-bg-2-rgb));
+  --vera-code-fg:        rgb(var(--vera-code-fg-rgb));
+  --vera-code-border:    rgb(var(--vera-code-border-rgb));
+
+  /* Semantic aliases */
+  --bg:        var(--vera-paper);
+  --surface:   var(--vera-surface);
+  --text:      var(--vera-ink);
+  --text-muted: var(--vera-muted);
+  --border:    var(--vera-border);
+}
+
+/* ── Light mode override ─────────────────────────────────────
+   Only the channel triples need to change; the `--vera-*`
+   aliases above resolve against them automatically. */
+.light {
+  --vera-ink-rgb:            26 26 46;
+  --vera-paper-rgb:          247 247 250;
+  --vera-surface-rgb:        255 255 255;
+  --vera-surface-2-rgb:      240 240 245;
+  --vera-muted-rgb:          139 139 168;
+  --vera-subtle-rgb:         107 107 136;
+  --vera-border-rgb:         226 226 238;
+  --vera-border-subtle-rgb:  235 235 245;
+  --vera-border-strong-rgb:  200 200 220;
+  --vera-accent-rgb:         79 70 229;   /* #4F46E5 */
+  --vera-accent-hover-rgb:   67 56 202;   /* #4338CA */
+  --vera-accent-muted-rgb:   238 242 255; /* #EEF2FF */
+  --vera-verified-rgb:       5 150 105;
+  --vera-verified-muted-rgb: 236 253 245;
+  --vera-insufficient-rgb:   220 38 38;
+  --vera-insufficient-muted-rgb: 255 241 242;
+  --vera-backtrack-rgb:      217 119 6;
+  --vera-backtrack-muted-rgb: 255 251 235;
+  --vera-code-bg-rgb:        30 30 46;
+  --vera-code-bg-2-rgb:      24 24 37;
+  --vera-code-fg-rgb:        205 214 244;
+  --vera-code-border-rgb:    46 46 66;
+}
+
+/* ── Base resets ─────────────────────────────────────────── */
+@layer base {
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    background-color: var(--vera-paper);
+    color: var(--vera-ink);
+    font-family: var(--font-sans), system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 20px;
+  }
+
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
+
+  /* Premium thin scrollbars */
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--vera-border-strong); border-radius: 2px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--vera-muted); }
+
+  /* Selection */
+  ::selection {
+    background: var(--vera-accent-muted);
+    color: var(--vera-ink);
+  }
+
+  /* Focus ring — keyboard only */
+  :focus-visible {
+    outline: 2px solid var(--vera-accent);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+  :focus:not(:focus-visible) { outline: none; }
+}
+
+/* ── Typography scale ────────────────────────────────────── */
+@layer components {
+  .text-display {
+    font-family: var(--font-mono), 'Menlo', monospace;
+    font-weight: 700;
+    font-size: 26px;
+    line-height: 32px;
+    letter-spacing: -0.03em;
+    color: var(--vera-ink);
+  }
+
+  .text-heading {
+    font-family: var(--font-sans), sans-serif;
+    font-weight: 600;
+    font-size: 18px;
+    line-height: 24px;
+    letter-spacing: -0.015em;
+  }
+
+  .text-subheading {
+    font-family: var(--font-sans), sans-serif;
+    font-weight: 500;
+    font-size: 15px;
+    line-height: 20px;
+    letter-spacing: -0.01em;
+  }
+
+  .text-body {
+    font-family: var(--font-sans), sans-serif;
+    font-weight: 400;
+    font-size: 14px;
+    line-height: 20px;
+  }
+
+  .text-label {
+    font-family: var(--font-sans), sans-serif;
+    font-weight: 400;
+    font-size: 12px;
+    line-height: 16px;
+  }
+
+  .text-mono-ui {
+    font-family: var(--font-mono), 'Menlo', monospace;
+    font-weight: 400;
+    font-size: 12px;
+    line-height: 16px;
+    letter-spacing: 0;
+  }
+
+  .text-code {
+    font-family: var(--font-mono), 'Menlo', 'Cascadia Code', monospace;
+    font-weight: 400;
+    font-size: 13px;
+    line-height: 20px;
+  }
+}
+
+/* ── Keyframe animations ─────────────────────────────────── */
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: 0.5; transform: scale(0.8); }
+}
+
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slide-in-left {
+  from { opacity: 0; transform: translateX(-8px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes status-badge-pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.4; }
+}
+
+/* ── Animation utility classes ───────────────────────────── */
+@layer utilities {
+  .step-pulse    { animation: pulse-dot 1.4s ease-in-out infinite; }
+  .status-badge-pulse { animation: status-badge-pulse 1.5s ease-in-out infinite; }
+  .animate-slide-up      { animation: slide-up 0.2s ease-out both; }
+  .animate-slide-in-left { animation: slide-in-left 0.2s ease-out both; }
+  .animate-fade-in       { animation: fade-in 0.15s ease-out both; }
+
+  .shimmer {
+    background: linear-gradient(
+      90deg,
+      var(--vera-border-subtle) 25%,
+      var(--vera-border) 50%,
+      var(--vera-border-subtle) 75%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.6s ease-in-out infinite;
+  }
+
+  /* Standardized table header style (S9.1) */
+  .table-header {
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--vera-muted);
+  }
+
+  /* Tabular number alignment for numeric body-font cells (S9.3) */
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* ── Premium card / surface styles ──────────────────────── */
+@layer components {
+  .vera-card {
+    background: var(--vera-surface);
+    border: 1px solid var(--vera-border);
+    border-radius: 8px;
+  }
+
+  .vera-card-hover {
+    background: var(--vera-surface);
+    border: 1px solid var(--vera-border);
+    border-radius: 8px;
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+  .vera-card-hover:hover {
+    border-color: var(--vera-border-strong);
+    box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+  }
+
+  /* Inputs */
+  .vera-input {
+    width: 100%;
+    padding: 8px 12px;
+    font-size: 14px;
+    font-family: var(--font-sans), sans-serif;
+    color: var(--vera-ink);
+    background: var(--vera-paper);
+    border: 1px solid var(--vera-border);
+    border-radius: 6px;
+    outline: none;
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+  .vera-input:focus {
+    border-color: var(--vera-accent);
+    box-shadow: 0 0 0 3px var(--vera-accent-glow);
+  }
+  .vera-input::placeholder {
+    color: var(--vera-muted);
+  }
+
+  /* Buttons */
+  .vera-btn-primary {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    font-size: 13px;
+    font-weight: 500;
+    font-family: var(--font-sans), sans-serif;
+    color: #FFFFFF;
+    background: var(--vera-accent);
+    border: 1px solid transparent;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background 0.15s, box-shadow 0.15s, transform 0.1s;
+    white-space: nowrap;
+  }
+  .vera-btn-primary:hover {
+    background: var(--vera-accent-hover);
+    box-shadow: 0 0 0 3px var(--vera-accent-glow);
+  }
+  .vera-btn-primary:active { transform: scale(0.98); }
+  .vera-btn-primary:disabled { opacity: 0.45; pointer-events: none; }
+
+  .vera-btn-ghost {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 14px;
+    font-size: 13px;
+    font-weight: 500;
+    font-family: var(--font-sans), sans-serif;
+    color: var(--vera-subtle);
+    background: transparent;
+    border: 1px solid var(--vera-border);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+  }
+  .vera-btn-ghost:hover {
+    color: var(--vera-ink);
+    background: var(--vera-border-subtle);
+    border-color: var(--vera-border-strong);
+  }
+  .vera-btn-ghost:disabled { opacity: 0.45; pointer-events: none; }
+
+  /* Tables */
+  .vera-table {
+    width: 100%;
+    border-collapse: collapse;
+    text-align: left;
+  }
+  .vera-table th {
+    padding: 10px 16px;
+    font-size: 11px;
+    font-weight: 500;
+    font-family: var(--font-sans), sans-serif;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--vera-muted);
+    border-bottom: 1px solid var(--vera-border);
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+  }
+  .vera-table th:hover { color: var(--vera-ink); }
+  .vera-table td {
+    padding: 11px 16px;
+    font-size: 13px;
+    color: var(--vera-ink);
+    border-bottom: 1px solid var(--vera-border-subtle);
+    vertical-align: middle;
+  }
+  .vera-table tbody tr {
+    transition: background 0.1s;
+  }
+  .vera-table tbody tr:hover {
+    background: color-mix(in srgb, var(--vera-border-subtle) 50%, transparent);
+  }
+  .vera-table tbody tr:last-child td {
+    border-bottom: none;
+  }
+}
+
+/* ── Reduced motion — WCAG 2.2 §11.4: instant state changes, no animation ── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}

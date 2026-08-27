@@ -9,16 +9,29 @@ lerna-debug.log*
 
 # Environment variables
 .env
-backend/.env
 .env.local
 .env.development.local
 .env.test.local
 .env.production.local
+apps/*/.env
+apps/*/.env.local
 
+# Node
 node_modules
 dist
 dist-ssr
 *.local
+
+# Next.js
+.next/
+apps/web/.next/
+apps/web/out/
+apps/web/next-env.d.ts
+apps/web/tsconfig.tsbuildinfo
+apps/web/*.tsbuildinfo
+
+# Turborepo
+.turbo/
 
 # Editor directories and files
 .vscode/*
@@ -88,7 +101,6 @@ env/
 ENV/
 env.bak/
 venv.bak/
-backend/venv/
 
 # Database
 *.sqlite3
