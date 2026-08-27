@@ -1,0 +1,22 @@
+[importlinter]
+root_packages =
+    vera_core
+    vera_llm
+    vera_api
+
+[importlinter:contract:core-is-independent]
+name = vera_core must not import adapters or API
+type = forbidden
+source_modules =
+    vera_core
+forbidden_modules =
+    vera_llm
+    vera_api
+
+[importlinter:contract:api-imports-core-not-llm-directly]
+name = vera_api must not import vera_llm directly (only through core ports)
+type = forbidden
+source_modules =
+    vera_api
+forbidden_modules =
+    vera_llm
