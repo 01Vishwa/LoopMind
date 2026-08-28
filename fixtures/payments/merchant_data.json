@@ -1,0 +1,6 @@
+[
+  { "merchant_id": "m01", "name": "Northwind Coffee", "category": "food_beverage" },
+  { "merchant_id": "m02", "name": "Contoso Books", "category": "retail" },
+  { "merchant_id": "m03", "name": "Fabrikam Travel", "category": "travel" },
+  { "merchant_id": "m04", "name": "Adventure Works Gear", "category": "retail" }
+]

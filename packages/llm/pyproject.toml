@@ -10,6 +10,15 @@ dependencies = [
     "tenacity>=9.0",
 ]
 
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+markers = [
+    "integration: tests that require a real database",
+    "e2e: end-to-end tests",
+    "live_llm: tests that hit a real LLM provider (needs API keys in env)",
+]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

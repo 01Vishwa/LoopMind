@@ -6,7 +6,7 @@ to a safe size before they are injected into LLM prompts.
 
 from __future__ import annotations
 
-from vera_core.models.run import Observation
+from vera_core.models.observation import Observation
 
 # Default caps
 DEFAULT_STDOUT_CAP = 8_192  # 8 KB — enough for most outputs

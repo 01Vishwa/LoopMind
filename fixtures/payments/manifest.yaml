@@ -1,0 +1,65 @@
+name: payments
+description: >
+  Synthetic card/ACH/wallet payment transactions with chargebacks, merchant
+  reference data, and a per-method fee schedule. Used by the Phase 3 fake loop
+  and (from Phase 4) by a real sandbox as the loop-vs-single-shot gate set.
+files:
+  - path: payments.csv
+    kind: csv
+    description: >
+      20 payment transactions. Columns: txn_id, merchant_id, amount, method
+      (card|ach|wallet), captured_at (RFC3339), capture_delay_manual (bool),
+      chargeback (disputed amount, 0 if none).
+  - path: merchant_data.json
+    kind: json
+    description: Four merchants keyed by merchant_id, with name and category.
+  - path: fees.json
+    kind: json
+    description: Processing fee (percent of amount + fixed per transaction) per method.
+
+# Phase 4 gate set — 10 queries of increasing difficulty. `contains` is a
+# substring match against the finalized answer; `tolerance` is the allowed
+# absolute error when the checker parses a number out of the answer.
+queries:
+  - query: "How many transactions are in the dataset?"
+    contains: "20"
+
+  - query: "How many distinct merchants appear in the data?"
+    contains: "4"
+
+  - query: "What is the total chargeback amount across all transactions?"
+    contains: "1250"
+    tolerance: 0.01
+
+  - query: "What percentage of transactions used the card method?"
+    contains: "60"
+    tolerance: 0.5
+
+  - query: "How many transactions resulted in a chargeback?"
+    contains: "5"
+
+  - query: "What is the combined value of all transaction amounts?"
+    contains: "3662.73"
+    tolerance: 0.01
+
+  - query: "What is the average transaction amount?"
+    contains: "183.14"
+    tolerance: 0.02
+
+  - query: >
+      Which merchant has the highest total chargeback amount, and what is that
+      total?
+    contains: "Adventure Works Gear"
+    # total for that merchant is 750.00
+
+  - query: >
+      Using fees.json, what are the total card processing fees (percent of the
+      amount plus the fixed fee, per card transaction)?
+    contains: "89.09"
+    tolerance: 0.05
+
+  - query: >
+      Joining merchant_data.json, what is the total transaction volume for
+      merchants in the "retail" category?
+    contains: "2085.74"
+    tolerance: 0.01

@@ -115,85 +115,143 @@ All green, zero warnings. The domain model is the vocabulary every subsequent ph
 
 ## Phase 2 — Key Vault & BYOK Provider Management
 
-**Goal:** a user can connect an OpenRouter or NVIDIA NIM key, VERA validates it, stores it encrypted, and fetches the available models list.
+**Goal:** a user can connect an OpenRouter or NVIDIA NIM key, VERA validates it, stores it in **Supabase Vault** (never in an app-owned table, never logged, never returned), caches the available models, and lists connected providers with their model counts.
 
 **Duration:** ~4 days
 
 **Entry gate:** Phase 1 exit gate passes.
 
+**Platform:** Supabase is the sole external service — managed Postgres + Vault +
+Auth + Storage + Realtime behind the existing `vera_core` ports. See
+`docs/adr/0002-supabase-platform.md` and
+`docs/superpowers/specs/2026-08-28-phase-2-supabase-byok-design.md`.
+`packages/core` is **not modified** in this phase.
+
 ### What you build
+
+Packages stay **flat** — no `packages/adapters/` rename (CLAUDE.md forbids it).
 
 ```
 Files created:
-  packages/adapters/keyvault/pyproject.toml
-  packages/adapters/keyvault/src/vera_keyvault/
-    fernet_vault.py                        # Fernet encryption, per-tenant derivation
-    fake.py                                # FakeVault (in-memory dict)
-    tests/unit/test_fernet_vault.py
+  supabase/                                # NEW — Supabase CLI project
+    config.toml
+    migrations/0001_extensions.sql         # supabase_vault, vector, pgcrypto
+    migrations/0002_tenancy.sql            # tenants, users
+    migrations/0003_providers.sql          # provider_connections, provider_models_cache
+    migrations/0004_rls.sql                # current_tenant_id(), RLS policies
+    migrations/0005_grants.sql             # authenticated-role grants (NOT vault.decrypted_secrets)
+    seed.sql                               # demo tenant + user, fixed UUIDs
 
-  packages/adapters/llm/pyproject.toml
-  packages/adapters/llm/src/vera_llm/
-    providers.py                           # PROVIDER_CONFIGS (OpenRouter, NVIDIA NIM)
-    validation.py                          # validate_connection: list models + test completion
-    fakes.py                               # FakeLLM (scripted responses), RecordReplayLLM
-    tests/unit/
-      test_providers.py
-      test_validation.py                   # with httpx mock, recorded cassettes
-
-  db/schema/02_providers.sql               # provider_connections, provider_models_cache
-  db/schema/13_keyvault.sql                # key_vault table
-  db/policies/rls_tenancy.sql              # RLS on provider tables
-
-  packages/adapters/db/pyproject.toml
-  packages/adapters/db/src/vera_db/
-    engine.py                              # pooled vs direct Neon DSN
-    session.py                             # async_sessionmaker + RLS GUC binding
-    models/provider.py                     # SQLAlchemy ORM for provider_connections
-    models/keyvault.py                     # SQLAlchemy ORM for key_vault
+  packages/db/pyproject.toml               # drop alembic; keep sqlalchemy/asyncpg/pgvector
+  packages/db/src/vera_db/
+    config.py                              # reads VERA_DATABASE_URL* from env
+    engine.py                              # build_pooled_engine (NullPool, statement_cache_size=0) + build_direct_engine
+    session.py                             # make_sessionmaker + tenant_session helper (set_config app.tenant_id)
+    models/base.py                         # DeclarativeBase + TimestampMixin
+    models/tenancy.py                      # Tenant, User ORM
+    models/provider.py                     # ProviderConnectionRow, ProviderModelCacheRow ORM
     repositories/provider_repository.py    # implements ProviderRepositoryPort
-    types/                                 # halfvec, UUIDv7 custom types
-    migrations/env.py
-    migrations/versions/001_initial_providers.py
+    repositories/vault_repository.py       # implements KeyVaultPort via Supabase Vault
+    __init__.py                            # re-export public surface
 
-  apps/cli/pyproject.toml
+  packages/llm/src/vera_llm/
+    providers.py                           # PROVIDER_CONFIGS (OpenRouter, NVIDIA NIM)
+    model_parsing.py                       # per-provider /models response -> list[ModelInfo]
+    validation.py                          # validate_connection: list models + test completion
+    client.py                              # LLMClient (list_models + validate; complete -> NotImplementedError)
+    __init__.py                            # re-export
+  packages/llm/tests/
+    fixtures/openrouter_models.json        # recorded
+    fixtures/nvidia_models.json            # recorded
+    test_providers.py
+    test_validation.py                     # httpx.MockTransport, recorded fixtures
+
+  apps/cli/pyproject.toml                  # NEW app; add to [tool.uv.workspace]
   apps/cli/src/vera_cli/
     main.py                                # typer app
-    commands/db.py                         # branch create, migrate, seed
-    commands/doctor.py                     # environment validation
-    commands/provider.py                   # vera provider add, list, validate
+    deps.py                                # build engine/repos/llm client from env
+    services/provider_service.py           # connect / revalidate / disconnect orchestration (single tx)
+    commands/doctor.py                     # env vars, select 1, supabase_vault, current_tenant_id()
+    commands/db.py                         # vera db migrate -> supabase db push
+    commands/dev.py                        # vera dev seed (fixed demo tenant/user UUIDs)
+    commands/provider.py                   # add / list / validate / rm
+  apps/cli/tests/test_provider_commands.py # CliRunner + fakes
+
+  docs/adr/0002-supabase-platform.md       # NEW
 ```
+
+Config / workspace / lint changes: `pyproject.toml` adds `apps/cli` to
+`[tool.uv.workspace].members`; `.importlinter` adds `vera_cli` to `root_packages`
+and to the two forbidden contracts; `mypy.ini` adds `[mypy-pgvector.*]`; the
+`Makefile` `lint` target extends mypy to
+`packages/db/src packages/llm/src apps/cli/src` and replaces `migrate` /
+`migrate-new` with `db-migrate` (`supabase db push`), `db-new`
+(`supabase migration new $(MSG)`), `db-reset` (`supabase db reset`);
+`.env.example` gets the `# ── Supabase ──` block, `VERA_KEYVAULT_BACKEND=supabase_vault`,
+and drops `VERA_VAULT_MASTER_KEY`.
 
 ### Implementation sequence
 
 ```
-Step 2.1  Implement FakeVault (in-memory, for tests)
-Step 2.2  Implement FernetVault with per-tenant key derivation
-Step 2.3  Write FernetVault unit tests — encrypt/decrypt round-trip, tenant isolation
-Step 2.4  Define PROVIDER_CONFIGS for OpenRouter and NVIDIA NIM
-Step 2.5  Implement validate_connection (list models + test completion)
-Step 2.6  Record HTTP cassettes for validation against both providers
-Step 2.7  Write validation unit tests using recorded cassettes
-Step 2.8  Create DB schema (02_providers.sql, 13_keyvault.sql)
-Step 2.9  Create Alembic migration 001
-Step 2.10 Implement provider_repository (CRUD + model cache refresh)
-Step 2.11 Write CLI commands: vera provider add --kind openrouter --key sk-or-v1-...
-Step 2.12 Integration test: add provider → validate → list models → store encrypted key
+Step 2.1  Docs & config — ADR 0002; PLAN.md / PHASES.md edits; .env.example;
+          pyproject workspace; .importlinter; mypy.ini; Makefile.
+Step 2.2  supabase/config.toml + the five migrations; verify `supabase db push`
+          applies clean and `supabase db reset` is idempotent.
+Step 2.3  vera_db core — config.py, engine.py (pooled NullPool + direct),
+          session.py (tenant_session), models/* (SQLAlchemy 2.0 declarative).
+Step 2.4  vera_db repositories — provider_repository.py (ProviderRepositoryPort,
+          selectinload model cache, no N+1), vault_repository.py (KeyVaultPort:
+          vault.create_secret / vault.update_secret / vault.decrypted_secrets,
+          parameterised, secret name t:{tenant_id}:{ref}); __init__.py;
+          integration tests.
+Step 2.5  vera_llm validation — providers.py, model_parsing.py, validation.py,
+          client.py, recorded fixtures, unit tests (valid / 401 / empty /
+          completion-failure; identical request shape across providers).
+Step 2.6  apps/cli — pyproject, deps.py, services/provider_service.py (single tx
+          across connection insert + vault write + cache replace), commands/*,
+          main.py, CliRunner tests with FakeLLM + FakeKeyVault + in-memory repo.
+Step 2.7  Gate — make lint, full pytest, the manual CLI flow; completion notes.
 ```
+
+Tasks 2.3–2.5 are independent once 2.1–2.2 land and can run in parallel; 2.6
+depends on 2.3–2.5.
+
+### Tenancy model for this phase
+
+- The CLI (and later the API) connect as the `postgres` / service-role Postgres
+  user, which bypasses RLS by design. Every repository method takes an explicit
+  `tenant_id` and filters on it in SQL — RLS is defence in depth on the server
+  path.
+- RLS policies are authored now against `public.current_tenant_id()` (reads the
+  JWT `tenant_id` claim or the `app.tenant_id` GUC) so the future authenticated
+  browser path is already covered. Phase 6 only changes where the tenant id comes
+  from.
+- The load-bearing cross-tenant isolation test lands in Phase 5; a `integration`
+  RLS smoke test in this phase asserts an `authenticated`-role connection with a
+  tenant-A claim sees 0 tenant-B rows.
 
 ### Exit gate
 
 ```bash
-# Unit tests pass
-make test
-
-# CLI flow works end-to-end against a real Neon branch
-uv run vera db branch create --name test/phase2
-uv run vera db migrate
+supabase db push                                                       # schema + RLS + grants
+uv run pytest packages/ apps/ -q -m "not integration and not live_llm" # unit + contract
+uv run pytest -q -m integration                                        # against Supabase (supabase start)
+uv run vera doctor                                                     # all green
+uv run vera dev seed
 uv run vera provider add --kind openrouter --key $OPENROUTER_API_KEY
-uv run vera provider list   # shows connected provider + model count
+uv run vera provider list                                              # connected + model count
+make lint                                                              # ruff + mypy + import-linter
 ```
 
-The user can connect a provider and see available models from the terminal. No API, no frontend — just the CLI proving the vault, validation, and persistence work.
+Manual verification after `provider add`:
+
+- the raw key is **absent** from `provider_connections` (only `api_key_ref`);
+- `select decrypted_secret from vault.decrypted_secrets where name = <ref>` returns it;
+- `select secret from vault.secrets where name = <ref>` is ciphertext only.
+
+The user can connect a provider and see available models from the terminal. No
+API, no frontend — just the CLI proving the vault, validation, and persistence
+work.
 
 ---
 
@@ -473,6 +531,8 @@ uv run vera run --workspace ./fixtures/payments \
 
 ## Phase 5 — Persistence & Event Streaming
 
+> **Platform note (Supabase edition):** "Neon" below now means **Supabase Postgres**; Storage, Auth, and Realtime are Supabase-managed, consumed through the existing `vera_core` ports. Schema lives in `supabase/migrations/` (no Alembic). See `docs/adr/0002-supabase-platform.md`.
+
 **Goal:** runs survive process restart. Tenants are isolated by RLS. The event stream is durable and replayable.
 
 **Duration:** ~8 days
@@ -588,6 +648,8 @@ uv run vera run list   # shows the completed run with cost + status
 
 ## Phase 6 — Full API Surface
 
+> **Platform note (Supabase edition):** "Neon" below now means **Supabase Postgres**; Storage, Auth, and Realtime are Supabase-managed, consumed through the existing `vera_core` ports. Supabase Auth replaces the custom JWT flow; Realtime supersedes SSE polling. See `docs/adr/0002-supabase-platform.md`.
+
 **Goal:** the frontend can integrate. Every endpoint from the spec works, with auth, RBAC, validation, pagination, SSE streaming, and RFC 9457 errors.
 
 **Duration:** ~8 days
@@ -693,6 +755,8 @@ uv run pytest apps/api/tests/contract/ -v
 
 ## Phase 7 — Heterogeneous Files & Retrieval
 
+> **Platform note (Supabase edition):** "Neon" below now means **Supabase Postgres**; Storage, Auth, and Realtime are Supabase-managed, consumed through the existing `vera_core` ports. See `docs/adr/0002-supabase-platform.md`.
+
 **Goal:** VERA handles XLSX (multi-sheet, irregular tables), Markdown, TXT, PDF, SQLite, ZIP, and Parquet. The Retriever selects the right files via hybrid search.
 
 **Duration:** ~5 days
@@ -751,6 +815,8 @@ uv run pytest packages/adapters/retrieval/tests/integration/ -v
 ---
 
 ## Phase 8 — DS-STAR+ Research Mode & Evaluation Harness
+
+> **Platform note (Supabase edition):** "Neon" below now means **Supabase Postgres**; Storage, Auth, and Realtime are Supabase-managed, consumed through the existing `vera_core` ports. See `docs/adr/0002-supabase-platform.md`.
 
 **Goal:** open-ended research queries produce cited reports. An eval harness gates prompt changes in CI.
 

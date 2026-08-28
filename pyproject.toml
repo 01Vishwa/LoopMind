@@ -9,6 +9,16 @@ members = [
     "packages/evals",
     "packages/testing",
     "apps/api",
+    "apps/cli",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["packages", "apps"]
+markers = [
+    "integration: tests that require a real database or Supabase project",
+    "e2e: end-to-end tests",
+    "live_llm: tests that hit a real LLM provider (needs API keys in env)",
 ]
 
 [tool.uv]

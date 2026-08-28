@@ -5,6 +5,7 @@ root_packages =
     vera_api
     vera_db
     vera_testing
+    vera_cli
 
 [importlinter:contract:core-is-independent]
 name = vera_core must not import adapters or API
@@ -16,6 +17,7 @@ forbidden_modules =
     vera_api
     vera_db
     vera_testing
+    vera_cli
 
 [importlinter:contract:testing-depends-only-on-core]
 name = vera_testing must not import adapters or API
@@ -26,6 +28,7 @@ forbidden_modules =
     vera_llm
     vera_api
     vera_db
+    vera_cli
 
 [importlinter:contract:api-imports-core-not-llm-directly]
 name = vera_api must not import vera_llm directly (only through core ports)

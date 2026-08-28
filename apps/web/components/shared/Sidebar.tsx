@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState, useEffect } from "react";
-import { PanelLeftClose, PanelLeftOpen, Zap } from "lucide-react";
+import { PanelLeftClose, PanelLeftOpen, Zap, LogOut } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 import { ThemeSegmentedControl, ThemeIconToggle } from "@/components/shared/ThemeToggle";
 import { PRIMARY_NAV, SETTINGS_NAV_ITEM } from "@/lib/config/navigation";
@@ -12,7 +12,7 @@ import { initialsOf } from "@/lib/data/session";
 
 export function Sidebar() {
   const pathname = usePathname();
-  const { user, can } = useAuth();
+  const { user, can, signOut } = useAuth();
   const navItems = PRIMARY_NAV.filter((item) => can(item.requiredRole));
   const [expanded, setExpanded] = useState(true);
   const [mounted, setMounted] = useState(false);
@@ -158,6 +158,7 @@ export function Sidebar() {
 
       {/* User block — bottom-pinned, above the chrome controls row */}
       <div className="px-1.5 pb-1.5 pt-1.5 border-t border-vera-border-subtle shrink-0">
+        {/* Avatar + name/email → navigates to settings */}
         <Link
           href="/settings"
           title={!expanded && user ? `${user.name} · ${user.email}` : undefined}
@@ -195,6 +196,22 @@ export function Sidebar() {
             </div>
           )}
         </Link>
+
+        {/* Sign out */}
+        <button
+          onClick={() => signOut()}
+          title="Sign out"
+          aria-label="Sign out"
+          className={cn(
+            "flex items-center gap-2.5 px-1.5 py-1.5 rounded-md w-full text-left",
+            "text-vera-muted hover:text-vera-insufficient hover:bg-vera-border-subtle",
+            "transition-colors duration-100 text-xs font-medium",
+            !expanded && "justify-center px-0"
+          )}
+        >
+          <LogOut size={14} strokeWidth={1.75} className="shrink-0" />
+          {expanded && <span>Sign out</span>}
+        </button>
       </div>
 
       {/* Chrome controls — two separate rows so theme and collapse are never confused */}
