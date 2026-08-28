@@ -99,9 +99,11 @@ the minimal subset of Task 4 needed by Task 5 was done here:
   plan Task 4 Step 4.
 - `packages/testing/src/vera_testing/fakes/__init__.py` — re-export block per
   plan Task 4 Step 7.
-The remaining Task 4 items (`models/__init__.py`, `policies/__init__.py`,
-`vera_core/__init__.py`, `factories/__init__.py`, `test_exports.py`) are still
-outstanding and should be picked up before/with Phase 2.
+The remaining Task 4 items were completed in a second follow-up (2026-08-28):
+`models/__init__.py`, `policies/__init__.py`, `vera_core/__init__.py`,
+`factories/__init__.py` now carry the full re-export blocks per plan Task 4, and
+`packages/core/tests/test_exports.py` was added (3 tests). All names verified
+against each module's real `__all__` before writing. Task 4 is now complete.
 
 ### Fake fixes (the port is the contract)
 
@@ -150,3 +152,17 @@ $ uv run pytest packages/ apps/ -q -m "not integration and not e2e"
 ```
 
 Test count: 40 -> 58 (+11 fake-conformance, +7 assertion tests).
+
+## Task 4 remainder (follow-up, 2026-08-28)
+
+Added the package-root re-exports the first Task 5 pass had left outstanding:
+`vera_core/models/__init__.py`, `vera_core/policies/__init__.py`,
+`vera_core/__init__.py` (minimal — `__version__` only, to avoid import cycles
+when `loop/` lands in Phase 7), `vera_testing/factories/__init__.py`, and
+`packages/core/tests/test_exports.py` (3 tests: models, ports, policies each
+re-export their full public surface).
+
+Final gate: ruff clean, `ruff format` reformatted the 2 new files then clean,
+mypy strict `Success: no issues found in 55 source files`, import-linter
+`3 kept, 0 broken`, pytest `61 passed`. Phase 1 is fully complete — every task
+in the plan is done.
