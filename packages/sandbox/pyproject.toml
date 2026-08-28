@@ -1,0 +1,19 @@
+[project]
+name = "vera-sandbox"
+version = "0.1.0"
+description = "VERA sandbox"
+requires-python = ">=3.13"
+dependencies = [
+    "vera-core",
+    "docker>=7.1",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/vera_sandbox"]
+
+[tool.uv.sources]
+vera-core = { workspace = true }

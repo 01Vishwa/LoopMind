@@ -1,0 +1,19 @@
+# Default run budgets
+defaults:
+  max_rounds: 10
+  max_cost_usd: "5.00"
+  max_debug_attempts: 3
+  max_wall_clock_s: 900
+
+presets:
+  quick:
+    max_rounds: 5
+    max_cost_usd: "1.00"
+    max_debug_attempts: 2
+    max_wall_clock_s: 180
+
+  deep:
+    max_rounds: 20
+    max_cost_usd: "15.00"
+    max_debug_attempts: 5
+    max_wall_clock_s: 1800

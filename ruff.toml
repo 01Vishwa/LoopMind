@@ -1,0 +1,10 @@
+target-version = "py313"
+line-length = 100
+src = ["packages", "apps"]
+
+[lint]
+select = ["E", "F", "I", "N", "UP", "B", "SIM"]
+ignore = ["E501"]
+
+[lint.per-file-ignores]
+"tests/**" = ["F401", "F811"]

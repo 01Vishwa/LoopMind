@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { Lock } from "lucide-react";
 import { SettingsCard } from "@/components/settings/SettingsCard";
 import { SaveButton } from "@/components/settings/SaveButton";
@@ -8,7 +8,7 @@ import { DangerZone } from "@/components/settings/DangerZone";
 import { cn } from "@/lib/utils/cn";
 
 import { useAuth } from "@/lib/auth/AuthProvider";
-import { initialsOf, updateProfile } from "@/lib/data/session";
+import { updateProfile } from "@/lib/data/session";
 import type { RunMode } from "@/lib/config/modes";
 import { STRINGS } from "@/lib/config/strings";
 
@@ -53,9 +53,6 @@ export default function ProfilePage() {
   const [runMode, setRunMode]       = useState<RunMode>("research");
   const [savedRm, setSavedRm]       = useState<RunMode>("research");
   const [isSaving, setIsSaving]     = useState(false);
-
-  const avatarInputRef = useRef<HTMLInputElement>(null);
-
   const isDirty =
     name !== savedName ||
     timezone !== savedTz ||
@@ -93,36 +90,6 @@ export default function ProfilePage() {
 
       {/* ── Avatar & Identity ─────────────────────────────── */}
       <SettingsCard title="Profile" description="Your identity across VERA.">
-        {/* Avatar row */}
-        <div className="flex items-center gap-5 mb-6 pb-6 border-b border-vera-border">
-          <div
-            className="w-16 h-16 rounded-full bg-vera-accent-muted border-2 border-vera-accent/20
-                       flex items-center justify-center shrink-0 cursor-pointer
-                       hover:border-vera-accent/50 transition-colors"
-            onClick={() => avatarInputRef.current?.click()}
-            title="Change avatar"
-          >
-            <span className="text-xl font-bold text-vera-accent">{name ? initialsOf(name) : ""}</span>
-          </div>
-          <div className="flex flex-col min-w-0">
-            <span className="text-sm font-semibold text-vera-ink">{savedName}</span>
-            <span className="text-xs text-vera-muted">{user?.email ?? ""}</span>
-            <button
-              onClick={() => avatarInputRef.current?.click()}
-              className="mt-2 text-xs text-vera-accent hover:underline text-left w-fit"
-            >
-              Change avatar
-            </button>
-          </div>
-          <input
-            ref={avatarInputRef}
-            type="file"
-            accept=".jpg,.jpeg,.png,.webp"
-            className="hidden"
-            onChange={() => {/* avatar upload handler */}}
-          />
-        </div>
-
         {/* Name field */}
         <div className="space-y-5 max-w-[480px]">
           <div className="space-y-1.5">
@@ -156,7 +123,7 @@ export default function ProfilePage() {
               id="profile-email"
               type="email"
               value={user?.email ?? ""}
-              readOnly={user?.emailManaged ?? true}
+              readOnly
               className={cn(
                 "vera-input",
                 user?.emailManaged && "opacity-60 cursor-not-allowed select-none"
