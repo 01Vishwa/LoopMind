@@ -1,0 +1,22 @@
+# Default model routing for new users.
+# These are recommendations shown in Agent Defaults onboarding.
+# Users can override any tier with their own provider connection.
+defaults:
+  reasoning:
+    display_name: "Claude Sonnet 5"
+    model_id: "anthropic/claude-sonnet-5"
+    provider_kind: "openrouter"
+    temperature: 0.0
+    max_tokens: 4096
+
+  utility:
+    display_name: "Llama 3.1 70B Instruct"
+    model_id: "meta/llama-3.1-70b-instruct"
+    provider_kind: "nvidia_nim"
+    temperature: 0.0
+    max_tokens: 4096
+
+  embedding:
+    display_name: "text-embedding-3-large"
+    model_id: "openai/text-embedding-3-large"
+    provider_kind: "openrouter"
