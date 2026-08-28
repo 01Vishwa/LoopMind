@@ -5,12 +5,16 @@ from __future__ import annotations
 from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
-from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from vera_core.models.code import CodeArtifact
 from vera_core.models.file import FileDescription
 from vera_core.models.ids import RunId, TenantId, UserId, WorkspaceId
+from vera_core.models.observation import ArtifactRef, Observation
+from vera_core.models.plan import PlanStep
+from vera_core.models.routing import RouterAction, RouterDecision
+from vera_core.models.verdict import Verdict
 
 
 class RunMode(StrEnum):
@@ -27,73 +31,23 @@ class RunStatus(StrEnum):
     CANCELLED = "cancelled"
 
 
-class PlanStep(BaseModel):
-    index: int
-    text: str
-    acceptance_criteria: list[str] = Field(default_factory=list)
-    created_at_round: int = 0
-    superseded: bool = False
-
-    model_config = {"frozen": True}
-
-
-class CodeArtifact(BaseModel):
-    language: Literal["python", "sql"] = "python"
-    source: str
-    sha256: str
-    parent_sha256: str | None = None
-
-    model_config = {"frozen": True}
-
-
-class ArtifactRef(BaseModel):
-    """Reference to an output artifact produced by sandbox execution."""
-
-    filename: str
-    uri: str
-    size_bytes: int
-    mime_type: str
-
-
-class Observation(BaseModel):
-    stdout: str
-    stderr: str
-    exit_code: int
-    duration_ms: int
-    artifacts: list[ArtifactRef] = Field(default_factory=list)
-    truncated: bool = False
-
-    @property
-    def succeeded(self) -> bool:
-        return self.exit_code == 0
-
-
-class Verdict(BaseModel):
-    sufficient: bool
-    reason: str = Field(min_length=10)
-    missing_aspects: list[str] = Field(default_factory=list)
-
-    model_config = {"frozen": True}
-
-
-class RouterAction(StrEnum):
-    ADD_STEP = "add_step"
-    BACKTRACK = "backtrack"
-
-
-class RouterDecision(BaseModel):
-    action: RouterAction
-    backtrack_index: int | None = None
-    rationale: str
-
-    model_config = {"frozen": True}
-
-
 class RunBudget(BaseModel):
     max_rounds: int = Field(default=10, ge=1, le=50)
     max_debug_attempts: int = Field(default=3, ge=0, le=10)
     max_wall_clock_s: int = Field(default=900, ge=30)
     max_cost_usd: Decimal = Field(default=Decimal("5.00"))
+
+    model_config = {"frozen": True}
+
+
+class AbandonedBranch(BaseModel):
+    """Records why a plan branch was abandoned so the planner can diverge."""
+
+    round: int
+    from_index: int
+    removed_step_texts: list[str] = Field(default_factory=list)
+    removed_script_sha: str | None = None
+    rationale: str
 
     model_config = {"frozen": True}
 
@@ -127,6 +81,9 @@ class RunState(BaseModel):
     error: str | None = None
     started_at: datetime
     finished_at: datetime | None = None
+    abandoned_branches: list[AbandonedBranch] = Field(default_factory=list)
+    script_checkpoints: dict[int, CodeArtifact] = Field(default_factory=dict)
+    observation_checkpoints: dict[int, Observation] = Field(default_factory=dict)
 
     # Mutable model_config — RunState changes during the loop
     model_config = {"frozen": False}
@@ -145,15 +102,16 @@ class RunState(BaseModel):
 
 
 __all__ = [
-    "RunMode",
-    "RunStatus",
-    "PlanStep",
-    "CodeArtifact",
+    "AbandonedBranch",
     "ArtifactRef",
+    "CodeArtifact",
     "Observation",
-    "Verdict",
+    "PlanStep",
     "RouterAction",
     "RouterDecision",
     "RunBudget",
+    "RunMode",
     "RunState",
+    "RunStatus",
+    "Verdict",
 ]

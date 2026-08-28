@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
+from vera_core.models.code import CodeArtifact
 from vera_core.models.ids import RunId
-from vera_core.models.run import ArtifactRef, CodeArtifact, Observation
+from vera_core.models.observation import ArtifactRef, Observation
 from vera_core.ports.sandbox import DataMount, ResourceLimits
 
 
@@ -49,6 +50,10 @@ class FakeSandbox:
             )
         )
 
+    def push_observation(self, obs: Observation) -> None:
+        """Queue a caller-built observation verbatim."""
+        self._queue.append(obs)
+
     def push_timeout(self) -> None:
         """Queue a timeout observation."""
         from vera_core.errors import SandboxTimeoutError
@@ -86,6 +91,11 @@ class FakeSandbox:
     @property
     def call_count(self) -> int:
         return len(self.calls)
+
+    @property
+    def queue_length(self) -> int:
+        """Number of scripted observations still queued (mirrors FakeLLM)."""
+        return len(self._queue)
 
     @property
     def last_call(self) -> dict[str, Any]:

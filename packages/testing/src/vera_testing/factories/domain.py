@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 
 from vera_core.models.agent_config import AgentDefaults, AgentTier, ModelAssignment
+from vera_core.models.code import CodeArtifact
 from vera_core.models.file import FileDescription, SchemaField
 from vera_core.models.ids import (
     FileId,
@@ -16,9 +17,12 @@ from vera_core.models.ids import (
     UserId,
     WorkspaceId,
 )
+from vera_core.models.observation import Observation
+from vera_core.models.plan import PlanStep
 from vera_core.models.provider import ConnectionStatus, ProviderConnection, ProviderKind
 from vera_core.models.run import RunBudget, RunMode, RunState, RunStatus
 from vera_core.models.tenancy import Role, Tenant, TenantPlan, User
+from vera_core.models.verdict import Verdict
 
 
 def make_tenant_id() -> TenantId:
@@ -184,6 +188,60 @@ def make_run_state(
     )
 
 
+def make_plan_step(
+    *,
+    index: int = 0,
+    text: str = "step",
+    acceptance_criteria: list[str] | None = None,
+    created_at_round: int = 0,
+    superseded: bool = False,
+) -> PlanStep:
+    return PlanStep(
+        index=index,
+        text=text,
+        acceptance_criteria=acceptance_criteria if acceptance_criteria is not None else [],
+        created_at_round=created_at_round,
+        superseded=superseded,
+    )
+
+
+def make_code_artifact(
+    *,
+    source: str = "print(1)",
+    sha256: str = "sha",
+    parent_sha256: str | None = None,
+) -> CodeArtifact:
+    return CodeArtifact(source=source, sha256=sha256, parent_sha256=parent_sha256)
+
+
+def make_observation(
+    *,
+    stdout: str = "ok",
+    stderr: str = "",
+    exit_code: int = 0,
+    duration_ms: int = 1,
+) -> Observation:
+    return Observation(
+        stdout=stdout,
+        stderr=stderr,
+        exit_code=exit_code,
+        duration_ms=duration_ms,
+    )
+
+
+def make_verdict(
+    *,
+    sufficient: bool = True,
+    reason: str = "looks correct enough",
+    missing_aspects: list[str] | None = None,
+) -> Verdict:
+    return Verdict(
+        sufficient=sufficient,
+        reason=reason,
+        missing_aspects=missing_aspects if missing_aspects is not None else [],
+    )
+
+
 __all__ = [
     "make_tenant_id",
     "make_user_id",
@@ -197,4 +255,8 @@ __all__ = [
     "make_agent_defaults",
     "make_file_description",
     "make_run_state",
+    "make_plan_step",
+    "make_code_artifact",
+    "make_observation",
+    "make_verdict",
 ]

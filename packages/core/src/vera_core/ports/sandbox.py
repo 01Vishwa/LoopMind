@@ -6,8 +6,9 @@ from typing import Protocol, runtime_checkable
 
 from pydantic import BaseModel, Field
 
+from vera_core.models.code import CodeArtifact
 from vera_core.models.ids import RunId
-from vera_core.models.run import CodeArtifact, Observation
+from vera_core.models.observation import Observation
 
 
 class DataMount(BaseModel):

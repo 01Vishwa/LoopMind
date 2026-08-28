@@ -3,7 +3,7 @@
 ### End-to-end backend development with BYOK model access
 
 **Role perspective:** Senior Backend Engineer + AI Engineer
-**Stack:** Python 3.12, FastAPI, LangGraph, SQLAlchemy 2.0, Pydantic v2, Neon Postgres, Docker
+**Stack:** Python 3.13, FastAPI, LangGraph, SQLAlchemy 2.0, Pydantic v2, Supabase Postgres (Supavisor pooling), Docker
 **Model access:** BYOK via OpenRouter (500+ models) and NVIDIA NIM (self-hosted or cloud endpoints)
 **Status:** v1.0 — Implementation-ready
 
@@ -407,6 +407,14 @@ class AgentDefaultsRepositoryPort(Protocol):
 ---
 
 ## 4. Database Schema — Full DDL
+
+> **Supabase edition:** the database is **Supabase Postgres**, not Neon. Runtime
+> traffic goes through **Supavisor** transaction-mode pooling (`:6543`,
+> `statement_cache_size=0` / `NullPool` on the async engine); migrations,
+> `LISTEN/NOTIFY`, and the RLS integration test use the session-mode direct
+> connection (`:5432`). Schema is applied from `supabase/migrations/*.sql` via
+> `supabase db push` — there is no Alembic. The DDL below is otherwise unchanged
+> (Postgres is Postgres); `supabase_vault` is added to the extensions list.
 
 ```sql
 -- db/schema/00_extensions.sql
@@ -865,64 +873,52 @@ async def validate_connection(self, *, kind, base_url, api_key) -> ValidationRes
 
 ## 6. Key Vault — Secure BYOK Storage
 
-### 6.1 Encryption-at-rest strategy
+### 6.1 Supabase Vault (encryption-at-rest strategy)
 
-API keys are encrypted before they hit the database. The vault stores only ciphertext; the encryption key is separate.
+> **Supabase edition:** BYOK keys live in **Supabase Vault** (`supabase_vault`
+> extension: `pgsodium`-backed authenticated encryption). There is **no
+> application `key_vault` table and no `VERA_VAULT_MASTER_KEY`** — Vault manages
+> its own encryption key. The adapter is a thin repository over Vault's SQL
+> surface, sharing the caller's `AsyncSession` so the connection insert and the
+> secret write commit in one transaction.
+
+`VaultRepository` implements `KeyVaultPort`. Every secret is named
+`t:{tenant_id}:{ref}` (the `ref` already contains the connection id, e.g.
+`provider:<conn_id>:api_key`), so names never collide across tenants.
 
 ```python
-# packages/adapters/keyvault/src/vera_keyvault/fernet_vault.py
+# packages/db/src/vera_db/repositories/vault_repository.py — sketch
 
-from cryptography.fernet import Fernet
-
-class FernetKeyVault:
-    """
-    Implements KeyVaultPort.
-    Encrypts with Fernet (AES-128-CBC + HMAC-SHA256).
-    Master key from environment variable VERA_VAULT_MASTER_KEY.
-    Per-tenant key derived: HKDF(master, salt=tenant_id).
-    """
+class VaultRepository:
+    """Implements KeyVaultPort over Supabase Vault. Parameterised SQL only."""
 
     async def store(self, *, tenant_id, ref, plaintext):
-        fernet = self._derive_fernet(tenant_id)
-        ciphertext = fernet.encrypt(plaintext.encode())
-        await self.db.execute(
-            "INSERT INTO key_vault (tenant_id, ref, ciphertext) VALUES ($1, $2, $3)",
-            tenant_id, ref, ciphertext.decode()
-        )
+        name = f"t:{tenant_id}:{ref}"
+        # SELECT id FROM vault.secrets WHERE name = :name
+        # if found  -> SELECT vault.update_secret(:id, :secret)
+        # else      -> SELECT vault.create_secret(:secret, :name, :description)
 
     async def retrieve(self, *, tenant_id, ref):
-        row = await self.db.fetchone(
-            "SELECT ciphertext FROM key_vault WHERE tenant_id = $1 AND ref = $2",
-            tenant_id, ref
-        )
-        fernet = self._derive_fernet(tenant_id)
-        return fernet.decrypt(row["ciphertext"].encode()).decode()
+        # SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = :name
+        # raise vera_core.errors.NotFoundError if no row
+
+    async def delete(self, *, tenant_id, ref):
+        # DELETE FROM vault.secrets WHERE name = :name
 ```
 
-```sql
--- db/schema/13_keyvault.sql
-CREATE TABLE key_vault (
-    tenant_id    uuid NOT NULL,
-    ref          text NOT NULL,                       -- e.g., "provider:<conn_id>:api_key"
-    ciphertext   text NOT NULL,
-    created_at   timestamptz NOT NULL DEFAULT now(),
-    PRIMARY KEY (tenant_id, ref)
-);
-
--- RLS: tenant isolation
-ALTER TABLE key_vault ENABLE ROW LEVEL SECURITY;
-ALTER TABLE key_vault FORCE ROW LEVEL SECURITY;
-CREATE POLICY vault_tenant ON key_vault
-    USING (tenant_id = current_setting('app.tenant_id', true)::uuid);
-```
+Manual verification: `select secret from vault.secrets where name = <ref>` is
+ciphertext; `select decrypted_secret from vault.decrypted_secrets where name =
+<ref>` returns the key; the raw key never appears in `provider_connections`
+(only `api_key_ref`).
 
 ### 6.2 Security rules
 
-- **Never log an API key.** Not in error messages, not in traces, not in request bodies. The `SecretStr` type in Pydantic prevents accidental serialisation.
+- **Never log an API key.** Not in error messages, not in traces, not in request bodies. The `SecretStr` type in Pydantic prevents accidental serialisation. `validate_connection` logs `kind`, `base_url`, `status_code`, `model_count` only.
 - **Never return a key to the frontend.** The API returns only the `api_key_ref` and a masked prefix (`or_sk_●●●●`).
-- **Per-tenant derivation** ensures a compromised tenant's keys cannot decrypt another tenant's vault.
-- **Key rotation:** when a user rotates their provider key, the old vault entry is overwritten. The old ciphertext is not preserved.
-- **Later:** swap `FernetKeyVault` for `AwsKmsVault` or `HashiCorpVault` behind the same port.
+- **`vault.decrypted_secrets` is server-side only** — never granted to the `authenticated` (browser) Postgres role. See `supabase/migrations/0005_grants.sql`.
+- **Per-tenant secret naming** (`t:{tenant_id}:...`) ensures one tenant's refs cannot address another tenant's secrets.
+- **Key rotation:** rotating a provider key calls `vault.update_secret` — the old ciphertext is not preserved.
+- **Later:** swap `VaultRepository` for `AwsKmsVault` or `HashiCorpVault` behind the same `KeyVaultPort`.
 
 ---
 
@@ -1290,6 +1286,12 @@ GET    /readyz                        readiness (DB + provider connectivity)
 
 ## 10. SSE Event Streaming
 
+> **Supabase edition:** in Phase 6 the durable stream is backed by **Supabase
+> Realtime** (Postgres change feed on `run_events`) behind `EventBusPort`, which
+> supersedes the `asyncio.sleep(0.5)` polling loop below. The SSE endpoint and
+> `Last-Event-ID` reconnect contract are unchanged — Realtime replaces the poll,
+> not the wire format.
+
 ```python
 # apps/api/src/vera_api/routers/v1/run_events.py
 
@@ -1368,6 +1370,14 @@ class RunService:
 ---
 
 ## 12. Authentication & Authorization
+
+> **Supabase edition:** in Phase 6, **Supabase Auth** issues and verifies the
+> JWT; the API validates it against Supabase's JWKS (pinned alg, `exp`/`aud`/`iss`
+> enforced) and builds `Principal` field-by-field. The `tenant_id` travels as a
+> JWT claim read by `public.current_tenant_id()`, so the `SET LOCAL app.tenant_id`
+> GUC approach below becomes a fallback for the service-role path only. The
+> hand-rolled `jwt.decode(..., settings.jwt_secret, ["HS256"])` and the
+> f-string `SET LOCAL` are replaced.
 
 ```python
 # apps/api/src/vera_api/dependencies/auth.py
@@ -1556,21 +1566,26 @@ db/functions/{uuid_v7,current_tenant}.sql
 ## 17. Configuration & Environment
 
 ```bash
-# .env.example
+# .env.example  (Supabase edition — see docs/adr/0002-supabase-platform.md)
 
-# ── Database ──
-VERA_DATABASE_URL=postgresql+asyncpg://...@ep-xxx-pooler.region.aws.neon.tech/vera
-VERA_DATABASE_URL_DIRECT=postgresql+asyncpg://...@ep-xxx.region.aws.neon.tech/vera
+# ── Supabase ──
+SUPABASE_URL=https://YOUR-PROJECT-REF.supabase.co
+SUPABASE_ANON_KEY=replace-me
+SUPABASE_SERVICE_ROLE_KEY=replace-me            # server-side only; bypasses RLS
+
+# Postgres — transaction pooler (Supavisor :6543), used by the API at runtime
+VERA_DATABASE_URL=postgresql+asyncpg://postgres.YOUR-REF:PASSWORD@aws-0-REGION.pooler.supabase.com:6543/postgres
+# Postgres — session mode (:5432), used by migrations, LISTEN/NOTIFY, and tests
+VERA_DATABASE_URL_DIRECT=postgresql+asyncpg://postgres.YOUR-REF:PASSWORD@aws-0-REGION.pooler.supabase.com:5432/postgres
 
 # ── Security ──
-VERA_JWT_SECRET=change-me-in-production
-VERA_VAULT_MASTER_KEY=base64-encoded-32-byte-key
+VERA_JWT_SECRET=change-me-in-production   # unused until Phase 6 (Supabase Auth JWKS)
 
 # ── Backends (swappable via config) ──
 VERA_SANDBOX_BACKEND=local_docker        # local_docker | fake
 VERA_STORAGE_BACKEND=local_fs            # local_fs | fake
 VERA_EVENT_BUS_BACKEND=postgres          # postgres | memory
-VERA_KEYVAULT_BACKEND=fernet             # fernet | fake
+VERA_KEYVAULT_BACKEND=supabase_vault     # supabase_vault | fake
 
 # ── Observability ──
 VERA_LOG_LEVEL=info
@@ -1578,6 +1593,8 @@ VERA_OTEL_EXPORTER=console               # console | otlp
 VERA_LANGFUSE_PUBLIC_KEY=
 VERA_LANGFUSE_SECRET_KEY=
 ```
+
+Removed: `VERA_VAULT_MASTER_KEY` (Supabase Vault manages its own encryption key).
 
 ---
 

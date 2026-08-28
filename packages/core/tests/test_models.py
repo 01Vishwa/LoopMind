@@ -183,3 +183,42 @@ class TestObservation:
     def test_succeeded_false_on_nonzero_exit(self):
         obs = Observation(stdout="", stderr="error", exit_code=1, duration_ms=5)
         assert obs.succeeded is False
+
+
+# ── Backtrack bookkeeping (Phase 3) ───────────────────────────────────────────
+
+
+def test_abandoned_branch_round_trips():
+    from vera_core.models.run import AbandonedBranch
+
+    b = AbandonedBranch(
+        round=2,
+        from_index=1,
+        removed_step_texts=["compute fees"],
+        removed_script_sha="abc",
+        rationale="wrong join key",
+    )
+    assert AbandonedBranch.model_validate_json(b.model_dump_json()) == b
+
+
+def test_run_state_round_trips_with_checkpoints():
+    from vera_core.models.code import CodeArtifact
+    from vera_core.models.observation import Observation
+    from vera_testing.factories.domain import make_run_state
+
+    st = make_run_state()
+    st.script_checkpoints[0] = CodeArtifact(source="print(1)", sha256="s0")
+    st.script_checkpoints[1] = CodeArtifact(source="print(2)", sha256="s1")
+    st.observation_checkpoints[0] = Observation(stdout="1", stderr="", exit_code=0, duration_ms=1)
+    round_tripped = type(st).model_validate_json(st.model_dump_json())
+    assert round_tripped.script_checkpoints[1].sha256 == "s1"  # int key survives
+    assert round_tripped.observation_checkpoints[0].stdout == "1"
+
+
+def test_moved_types_importable_from_new_and_old_paths():
+    from vera_core.models.observation import Observation as ONew
+    from vera_core.models.run import Observation as OOld
+    from vera_core.models.run import Verdict as VOld
+    from vera_core.models.verdict import Verdict as VNew
+
+    assert ONew is OOld and VNew is VOld

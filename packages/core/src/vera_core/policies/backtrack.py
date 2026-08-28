@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from vera_core.models.run import PlanStep, RunState
+from vera_core.models.plan import PlanStep
+from vera_core.models.run import RunState
 
 
 def apply_backtrack(state: RunState, backtrack_to_index: int) -> RunState:

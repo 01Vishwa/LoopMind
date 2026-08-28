@@ -1,0 +1,23 @@
+{
+  "object": "list",
+  "data": [
+    {
+      "id": "meta/llama-3.1-8b-instruct",
+      "object": "model",
+      "created": 1735689600,
+      "owned_by": "system"
+    },
+    {
+      "id": "meta/llama-3.1-70b-instruct",
+      "object": "model",
+      "created": 1735689600,
+      "owned_by": "system"
+    },
+    {
+      "id": "mistralai/mixtral-8x7b-instruct-v0.1",
+      "object": "model",
+      "created": 1735689600,
+      "owned_by": "system"
+    }
+  ]
+}

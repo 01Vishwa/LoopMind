@@ -9,7 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 
-from vera_core.models.run import PlanStep
+from vera_core.models.plan import PlanStep
 
 
 def plan_fingerprint(steps: list[PlanStep]) -> str:

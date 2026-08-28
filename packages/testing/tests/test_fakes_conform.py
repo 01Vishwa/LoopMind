@@ -10,6 +10,7 @@ from vera_core.ports import (
     KeyVaultPort,
     LLMPort,
     ObjectStorePort,
+    RetrieverPort,
     SandboxPort,
 )
 from vera_testing.assertions import assert_conforms
@@ -18,6 +19,7 @@ from vera_testing.fakes import (
     FakeKeyVault,
     FakeLLM,
     FakeObjectStore,
+    FakeRetriever,
     FakeSandbox,
 )
 
@@ -27,6 +29,7 @@ PAIRS = [
     (FakeSandbox, SandboxPort),
     (FakeObjectStore, ObjectStorePort),
     (FakeEventBus, EventBusPort),
+    (FakeRetriever, RetrieverPort),
 ]
 
 

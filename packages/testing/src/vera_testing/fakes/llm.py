@@ -28,6 +28,7 @@ class FakeLLM:
 
     def __init__(self) -> None:
         self._queue: list[LLMResponse] = []
+        self._agent_queues: dict[str, list[LLMResponse]] = {}
         self.calls: list[dict[str, Any]] = []
 
     # ── Response scripting ────────────────────────────────────────────────────
@@ -79,6 +80,41 @@ class FakeLLM:
         # Store as a sentinel
         self._queue.append(exc)  # type: ignore[arg-type]
 
+    def on(
+        self,
+        agent: str,
+        obj: BaseModel | str,
+        *,
+        cost_usd: Decimal = Decimal("0.001"),
+    ) -> None:
+        """Queue a response addressed to a specific agent name.
+
+        ``complete()`` prefers the per-agent queue matching its ``agent=`` kwarg
+        and falls back to the global queue when that queue is empty.
+        """
+        if isinstance(obj, str):
+            response = LLMResponse(
+                content=obj,
+                cost_usd=cost_usd,
+                input_tokens=100,
+                output_tokens=50,
+                model_id="fake/model",
+                latency_ms=10,
+                provider_kind=ProviderKind.OPENROUTER,
+            )
+        else:
+            response = LLMResponse(
+                content=obj.model_dump_json(),
+                parsed=obj,
+                cost_usd=cost_usd,
+                input_tokens=100,
+                output_tokens=50,
+                model_id="fake/model",
+                latency_ms=10,
+                provider_kind=ProviderKind.OPENROUTER,
+            )
+        self._agent_queues.setdefault(agent, []).append(response)
+
     # ── Port implementation ───────────────────────────────────────────────────
 
     async def complete(
@@ -106,14 +142,17 @@ class FakeLLM:
             }
         )
 
-        if not self._queue:
+        agent_queue = self._agent_queues.get(agent)
+        queue = agent_queue if agent_queue else self._queue
+
+        if not queue:
             raise RuntimeError(
                 f"FakeLLM has no queued responses. "
-                f"Call push_response() or push_parsed() before completing. "
+                f"Call push_response(), push_parsed(), or on() before completing. "
                 f"Call #{len(self.calls)} was for agent={agent!r}"
             )
 
-        item = self._queue.pop(0)
+        item = queue.pop(0)
         if isinstance(item, Exception):
             raise item
 
@@ -169,7 +208,7 @@ class FakeLLM:
 
     @property
     def queue_length(self) -> int:
-        return len(self._queue)
+        return len(self._queue) + sum(len(q) for q in self._agent_queues.values())
 
 
 __all__ = ["FakeLLM"]

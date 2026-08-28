@@ -96,3 +96,17 @@ def test_policies_reexports_every_policy() -> None:
     assert not missing, f"vera_core.policies does not re-export: {sorted(missing)}"
     for name in expected:
         assert getattr(policies, name) is not None
+
+
+def test_loop_surface() -> None:
+    from vera_core.loop import LoopDeps, run_precise
+
+    assert set({"LoopDeps", "run_precise"}).issubset(_loop_all())
+    assert LoopDeps is not None
+    assert callable(run_precise)
+
+
+def _loop_all() -> set[str]:
+    import vera_core.loop as loop
+
+    return set(loop.__all__)
