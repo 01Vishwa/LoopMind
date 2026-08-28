@@ -1,4 +1,4 @@
-"""MemoryObjectStore — in-memory object store for tests."""
+"""FakeObjectStore — in-memory object store for tests."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from vera_core.errors import ObjectNotFoundError
 from vera_core.ports.object_store import PresignedUpload
 
 
-class MemoryObjectStore:
+class FakeObjectStore:
     """Stores objects in-memory. PresignedUpload returns fake URLs."""
 
     def __init__(self) -> None:
@@ -49,4 +49,4 @@ class MemoryObjectStore:
         return len(self._store)
 
 
-__all__ = ["MemoryObjectStore"]
+__all__ = ["FakeObjectStore"]

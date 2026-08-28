@@ -1,4 +1,4 @@
-"""MemoryEventBus — in-memory event bus for tests."""
+"""FakeEventBus — in-memory event bus for tests."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from vera_core.models.events import RunEvent
 from vera_core.models.ids import RunId
 
 
-class MemoryEventBus:
+class FakeEventBus:
     """Stores events in-memory. Sequence numbers start at 1 per run."""
 
     def __init__(self) -> None:
@@ -39,4 +39,4 @@ class MemoryEventBus:
         return len(self._events.get(str(run_id), []))
 
 
-__all__ = ["MemoryEventBus"]
+__all__ = ["FakeEventBus"]
