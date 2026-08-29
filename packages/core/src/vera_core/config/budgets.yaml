@@ -4,6 +4,8 @@ defaults:
   max_cost_usd: "5.00"
   max_debug_attempts: 3
   max_wall_clock_s: 900
+  max_sub_questions: 8
+  max_gap_rounds: 1
 
 presets:
   quick:

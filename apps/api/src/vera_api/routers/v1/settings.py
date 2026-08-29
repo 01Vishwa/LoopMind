@@ -1,9 +1,9 @@
 from fastapi import APIRouter, Depends
 from supabase._async.client import AsyncClient
 
-from ...dependencies.auth import require_authenticated_user
+from ...dependencies.auth import get_current_user
 from ...dependencies.db import get_supabase_client
-from ...schemas.auth import Principal
+from ...dependencies.auth import Principal
 from ...schemas.settings import (
     AgentDefaultsResponse,
     UpdateAgentDefaultsRequest
@@ -14,7 +14,7 @@ router = APIRouter(prefix="/settings", tags=["Settings"])
 
 @router.get("/agent-defaults", response_model=AgentDefaultsResponse)
 async def get_agent_defaults(
-    principal: Principal = Depends(require_authenticated_user),
+    principal: Principal = Depends(get_current_user),
     supabase: AsyncClient = Depends(get_supabase_client)
 ):
     """
@@ -25,7 +25,7 @@ async def get_agent_defaults(
 @router.put("/agent-defaults", response_model=AgentDefaultsResponse)
 async def update_agent_defaults(
     body: UpdateAgentDefaultsRequest,
-    principal: Principal = Depends(require_authenticated_user),
+    principal: Principal = Depends(get_current_user),
     supabase: AsyncClient = Depends(get_supabase_client)
 ):
     """
@@ -35,7 +35,7 @@ async def update_agent_defaults(
 
 @router.post("/agent-defaults/reset", response_model=AgentDefaultsResponse)
 async def reset_agent_defaults(
-    principal: Principal = Depends(require_authenticated_user),
+    principal: Principal = Depends(get_current_user),
     supabase: AsyncClient = Depends(get_supabase_client)
 ):
     """

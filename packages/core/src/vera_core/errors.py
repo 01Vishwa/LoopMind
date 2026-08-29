@@ -163,6 +163,28 @@ class ObjectNotFoundError(VeraError):
         super().__init__(detail)
 
 
+class ImportDeniedError(VeraError):
+    """Raised by the AST scanner when a blocked import is found in generated code."""
+
+    status = 400
+    type_uri = "urn:vera:error:import-denied"
+
+    def __init__(self, detail: str = "Script imports a blocked module") -> None:
+        super().__init__(detail)
+
+
+class SandboxNotAvailableError(VeraError):
+    """Raised when subprocess sandbox is requested but VERA_SANDBOX_ALLOW_SUBPROCESS is not set."""
+
+    status = 503
+    type_uri = "urn:vera:error:sandbox-not-available"
+
+    def __init__(
+        self, detail: str = "Sandbox backend is not available in this environment"
+    ) -> None:
+        super().__init__(detail)
+
+
 __all__ = [
     "VeraError",
     "NotFoundError",
@@ -181,4 +203,6 @@ __all__ = [
     "AgentOutputError",
     "RunCancelledError",
     "ObjectNotFoundError",
+    "ImportDeniedError",
+    "SandboxNotAvailableError",
 ]

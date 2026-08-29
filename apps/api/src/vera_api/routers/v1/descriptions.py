@@ -3,9 +3,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from supabase._async.client import AsyncClient
 import uuid
 
-from ...dependencies.auth import require_authenticated_user
+from ...dependencies.auth import get_current_user
 from ...dependencies.db import get_supabase_client, get_db_session
-from ...schemas.auth import Principal
+from ...dependencies.auth import Principal
 from ...schemas.file import FileDescriptionResponse, SchemaFieldResponse
 from vera_db.repositories.description_repository import DescriptionRepository
 
@@ -14,7 +14,7 @@ router = APIRouter(tags=["Descriptions"])
 @router.get("/files/{file_id}/description", response_model=FileDescriptionResponse)
 async def get_description(
     file_id: str,
-    principal: Principal = Depends(require_authenticated_user),
+    principal: Principal = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session)
 ):
     """
@@ -46,7 +46,7 @@ async def get_description(
 @router.post("/files/{file_id}/reanalyze", status_code=202)
 async def reanalyze_file(
     file_id: str,
-    principal: Principal = Depends(require_authenticated_user),
+    principal: Principal = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session)
 ):
     """

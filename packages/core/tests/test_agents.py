@@ -35,7 +35,7 @@ from vera_core.models.routing import RouterAction, RouterDecision
 from vera_core.models.verdict import Verdict
 from vera_core.ports.llm import LLMResponse
 from vera_core.prompts import PromptRegistry
-from vera_testing.factories.domain import make_agent_defaults, make_file_description
+from vera_testing.factories.domain import make_agent_defaults
 from vera_testing.fakes import FakeLLM
 
 
@@ -78,15 +78,16 @@ async def test_planner_returns_steps() -> None:
     assert len(out.steps) == 2
 
 
-async def test_analyzer_returns_file_description() -> None:
+async def test_analyzer_returns_a_parser_script() -> None:
+    from vera_core.agents import AnalyzerScriptOutput
+
     llm = FakeLLM()
-    desc = make_file_description()
-    llm.on("analyzer", desc)
+    llm.on("analyzer", AnalyzerScriptOutput(source="import pandas as pd\nprint(pd.__version__)"))
     out, _ = await analyzer.run(
         _ctx(llm),
         AnalyzePayload(file_id="f1", filename="x.csv", kind="csv", sample="a,b\n1,2"),
     )
-    assert out == desc
+    assert out.source.startswith("import pandas")
 
 
 async def test_coder_and_debugger_return_source() -> None:

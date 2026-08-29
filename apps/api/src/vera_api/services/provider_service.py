@@ -11,7 +11,7 @@ from ..schemas.providers import (
     RegisterProviderRequest,
     ProviderConnectionResponse
 )
-from ..schemas.auth import Principal
+from ..dependencies.auth import Principal
 
 # Regex for key validation on server
 KEY_PATTERNS = {

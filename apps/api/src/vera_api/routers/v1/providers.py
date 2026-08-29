@@ -2,9 +2,9 @@ from fastapi import APIRouter, Depends
 from typing import List
 from supabase._async.client import AsyncClient
 
-from ...dependencies.auth import require_authenticated_user
+from ...dependencies.auth import get_current_user
 from ...dependencies.db import get_supabase_client
-from ...schemas.auth import Principal
+from ...dependencies.auth import Principal
 from ...schemas.providers import (
     TestProviderKeyRequest,
     TestKeyResponse,
@@ -19,7 +19,7 @@ router = APIRouter(prefix="/providers", tags=["Providers"])
 @router.post("/test", response_model=TestKeyResponse)
 async def test_provider_key(
     body: TestProviderKeyRequest,
-    principal: Principal = Depends(require_authenticated_user)
+    principal: Principal = Depends(get_current_user)
 ):
     """
     Stateless key validation. The key is never persisted.
@@ -29,7 +29,7 @@ async def test_provider_key(
 @router.post("/models", response_model=ModelsResponse)
 async def fetch_provider_models(
     body: TestProviderKeyRequest,
-    principal: Principal = Depends(require_authenticated_user)
+    principal: Principal = Depends(get_current_user)
 ):
     """
     Stateless model fetching. The key is never persisted.
@@ -39,7 +39,7 @@ async def fetch_provider_models(
 @router.post("", response_model=ProviderConnectionResponse)
 async def register_provider_connection(
     body: RegisterProviderRequest,
-    principal: Principal = Depends(require_authenticated_user),
+    principal: Principal = Depends(get_current_user),
     supabase: AsyncClient = Depends(get_supabase_client)
 ):
     """
@@ -49,7 +49,7 @@ async def register_provider_connection(
 
 @router.get("", response_model=List[ProviderConnectionResponse])
 async def list_provider_connections(
-    principal: Principal = Depends(require_authenticated_user),
+    principal: Principal = Depends(get_current_user),
     supabase: AsyncClient = Depends(get_supabase_client)
 ):
     """
@@ -60,7 +60,7 @@ async def list_provider_connections(
 @router.delete("/{connection_id}", status_code=204)
 async def delete_provider_connection(
     connection_id: str,
-    principal: Principal = Depends(require_authenticated_user),
+    principal: Principal = Depends(get_current_user),
     supabase: AsyncClient = Depends(get_supabase_client)
 ):
     """

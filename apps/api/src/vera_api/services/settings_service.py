@@ -5,7 +5,7 @@ from ..schemas.settings import (
     ModelAssignmentResponse,
     UpdateAgentDefaultsRequest
 )
-from ..schemas.auth import Principal
+from ..dependencies.auth import Principal
 
 DEFAULT_DEFAULTS = {
     "max_rounds": 7,

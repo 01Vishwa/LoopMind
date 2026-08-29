@@ -24,17 +24,33 @@ def run(
         bool, typer.Option("--fake-llm", help="Run against scripted fakes")
     ] = False,
     scenario: Annotated[str, typer.Option(help="happy | multiround | backtrack")] = "backtrack",
+    mode: Annotated[str, typer.Option(help="precise | research")] = "precise",
     max_rounds: Annotated[int, typer.Option(help="Round budget")] = 10,
 ) -> None:
-    """Run the precise analysis loop over a workspace."""
+    """Run the analysis loop over a workspace (precise) or a research report (research)."""
     if not fake_llm:
         typer.echo("Real LLM execution requires Phase 4. Use --fake-llm.")
         raise typer.Exit(1)
+    if mode not in ("precise", "research"):
+        typer.echo(f"Unknown mode {mode!r}. Choose one of: precise, research.")
+        raise typer.Exit(2)
+
+    file_count = sum(1 for p in workspace.iterdir() if p.suffix.lower() in SUPPORTED)
+
+    if mode == "research":
+        result = asyncio.run(_run_research_fake(query))
+        typer.echo(f"Analyzed {file_count} files")
+        typer.echo(f"Sub-questions: {len(result.sub_questions)}")
+        typer.echo(f"Gap rounds: {result.report.gap_rounds if result.report else 0}")
+        typer.echo(f"Cost: ${result.cost_usd:.4f}   Tokens: {result.total_tokens}")
+        typer.echo("Report:")
+        typer.echo((result.answer or "")[:500])
+        return
+
     if scenario not in _SCENARIOS:
         typer.echo(f"Unknown scenario {scenario!r}. Choose one of: {', '.join(_SCENARIOS)}.")
         raise typer.Exit(2)
 
-    file_count = sum(1 for p in workspace.iterdir() if p.suffix.lower() in SUPPORTED)
     result = asyncio.run(_run_fake(scenario, query, max_rounds))
 
     backtracks = len(result.abandoned_branches)
@@ -73,6 +89,32 @@ async def _run_fake(scenario: str, query: str, max_rounds: int) -> RunState:
         cycle_detector=CycleDetector(max_repeats=3),
     )
     return await run_precise(state, deps)
+
+
+async def _run_research_fake(query: str) -> RunState:
+    from vera_core.loop import LoopDeps, run
+    from vera_core.policies import CycleDetector
+    from vera_core.ports.clock import FixedClock
+    from vera_core.prompts import PromptRegistry
+    from vera_testing.factories.domain import make_agent_defaults
+    from vera_testing.fakes import FakeEventBus
+    from vera_testing.scenarios import research_scenario
+
+    sc = research_scenario()
+    sc.state.query = query
+    deps = LoopDeps(
+        llm=sc.llm,
+        sandbox=sc.sandbox,
+        retriever=sc.retriever,
+        event_bus=FakeEventBus(),
+        clock=FixedClock(datetime.now(UTC)),
+        defaults=make_agent_defaults(),
+        registry=PromptRegistry(),
+        file_refs=[],
+        mounts=[],
+        cycle_detector=CycleDetector(max_repeats=3),
+    )
+    return await run(sc.state, deps)
 
 
 __all__ = ["run"]

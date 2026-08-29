@@ -8,6 +8,13 @@ dependencies = [
     "docker>=7.1",
 ]
 
+[dependency-groups]
+dev = [
+    "vera-testing",
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
@@ -17,3 +24,4 @@ packages = ["src/vera_sandbox"]
 
 [tool.uv.sources]
 vera-core = { workspace = true }
+vera-testing = { workspace = true }

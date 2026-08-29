@@ -13,7 +13,7 @@ from fastapi import HTTPException
 
 from vera_db.repositories.file_repository import FileRepository
 from vera_db.repositories.description_repository import DescriptionRepository
-from vera_api.schemas.auth import Principal
+from vera_api.dependencies.auth import Principal
 from vera_api.schemas.ingest import IngestStatusResponse
 
 logger = logging.getLogger(__name__)

@@ -21,6 +21,25 @@ from vera_core.models.run import (
 )
 
 
+def test_file_description_partial_defaults_false_and_round_trips() -> None:
+    from vera_core.models.file import FileDescription
+    from vera_core.models.ids import FileId
+
+    d = FileDescription(file_id=FileId(uuid.uuid4()), summary_text="x")
+    assert d.partial is False
+
+    d2 = FileDescription(file_id=FileId(uuid.uuid4()), summary_text="x", partial=True)
+    assert FileDescription.model_validate_json(d2.model_dump_json()).partial is True
+
+
+def test_file_analyzed_event_partial_round_trips() -> None:
+    from vera_core.models.events import FileAnalyzedEvent
+    from vera_core.models.ids import RunId
+
+    e = FileAnalyzedEvent(run_id=RunId(uuid.uuid4()), file_id="f1", filename="x.csv", partial=True)
+    assert FileAnalyzedEvent.model_validate_json(e.model_dump_json()).partial is True
+
+
 def uid() -> UserId:
     return UserId(uuid.uuid4())
 
@@ -222,3 +241,46 @@ def test_moved_types_importable_from_new_and_old_paths():
     from vera_core.models.verdict import Verdict as VNew
 
     assert ONew is OOld and VNew is VOld
+
+
+def test_run_state_research_fields_default_and_round_trip() -> None:
+    from vera_core.models.report import Report, SubQuestion
+    from vera_testing.factories.domain import make_run_state
+
+    st = make_run_state()
+    assert st.sub_questions == []
+    assert st.report is None
+
+    st.sub_questions.append(SubQuestion(idx=1, text="what is X?"))
+    st.report = Report(markdown="# Report\nX is 5 [SQ-1].", sub_question_count=1)
+    rt = RunState.model_validate_json(st.model_dump_json())
+    assert rt.sub_questions[0].text == "what is X?"
+    assert rt.report is not None and "SQ-1" in rt.report.markdown
+
+
+def test_run_budget_research_bounds() -> None:
+    b = RunBudget()
+    assert b.max_sub_questions == 8
+    assert b.max_gap_rounds == 1
+    b2 = RunBudget(max_sub_questions=3, max_gap_rounds=0)
+    assert RunBudget.model_validate_json(b2.model_dump_json()).max_sub_questions == 3
+    with pytest.raises(ValidationError):
+        RunBudget(max_gap_rounds=99)
+
+
+def test_research_events_round_trip() -> None:
+    from vera_core.models.events import (
+        ReportGeneratedEvent,
+        SubQuestionResolvedEvent,
+        SubQuestionsGeneratedEvent,
+    )
+    from vera_core.models.ids import RunId
+
+    rid = RunId(uuid.uuid4())
+    for ev in (
+        SubQuestionsGeneratedEvent(run_id=rid, count=3, gap_round=0),
+        SubQuestionResolvedEvent(run_id=rid, idx=1, status="done", child_run_id="c1"),
+        ReportGeneratedEvent(run_id=rid, sub_question_count=3, gap_rounds=1),
+    ):
+        rt = type(ev).model_validate_json(ev.model_dump_json())
+        assert rt == ev

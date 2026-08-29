@@ -2,21 +2,25 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from vera_core.agents._shared import run_structured_agent
 from vera_core.agents._types import PlannerOutput
 from vera_core.agents.base import AgentContext
 from vera_core.models.agent_config import AgentTier
+from vera_core.models.file import FileDescription
+from vera_core.models.plan import PlanStep
+from vera_core.models.run import AbandonedBranch
 from vera_core.ports.llm import LLMResponse
 
 
 @dataclass(frozen=True)
 class PlannerPayload:
     query: str
-    descriptions: list[str]
-    existing_steps: list[str]
-    abandoned: list[str]
+    descriptions: list[FileDescription]
+    existing_steps: list[PlanStep]
+    abandoned: list[AbandonedBranch] = field(default_factory=list)
+    last_observation: str | None = None
 
 
 class PlannerAgent:
@@ -35,6 +39,7 @@ class PlannerAgent:
                 "descriptions": payload.descriptions,
                 "existing_steps": payload.existing_steps,
                 "abandoned": payload.abandoned,
+                "last_observation": payload.last_observation,
             },
             schema=PlannerOutput,
         )

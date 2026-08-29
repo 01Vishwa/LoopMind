@@ -13,6 +13,7 @@ from vera_core.models.file import FileDescription
 from vera_core.models.ids import RunId, TenantId, UserId, WorkspaceId
 from vera_core.models.observation import ArtifactRef, Observation
 from vera_core.models.plan import PlanStep
+from vera_core.models.report import Report, SubQuestion
 from vera_core.models.routing import RouterAction, RouterDecision
 from vera_core.models.verdict import Verdict
 
@@ -36,6 +37,8 @@ class RunBudget(BaseModel):
     max_debug_attempts: int = Field(default=3, ge=0, le=10)
     max_wall_clock_s: int = Field(default=900, ge=30)
     max_cost_usd: Decimal = Field(default=Decimal("5.00"))
+    max_sub_questions: int = Field(default=8, ge=1, le=20)  # DS-STAR+ research fan-out cap
+    max_gap_rounds: int = Field(default=1, ge=0, le=3)  # DS-STAR+ report refinement rounds
 
     model_config = {"frozen": True}
 
@@ -84,6 +87,9 @@ class RunState(BaseModel):
     abandoned_branches: list[AbandonedBranch] = Field(default_factory=list)
     script_checkpoints: dict[int, CodeArtifact] = Field(default_factory=dict)
     observation_checkpoints: dict[int, Observation] = Field(default_factory=dict)
+    # DS-STAR+ research mode only
+    sub_questions: list[SubQuestion] = Field(default_factory=list)
+    report: Report | None = None
 
     # Mutable model_config — RunState changes during the loop
     model_config = {"frozen": False}

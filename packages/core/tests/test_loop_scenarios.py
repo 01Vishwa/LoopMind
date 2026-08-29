@@ -30,6 +30,21 @@ def _deps(sc: Scenario) -> LoopDeps:
     )
 
 
+def _deps_for(llm: object, sandbox: object, retriever: object) -> LoopDeps:
+    return LoopDeps(
+        llm=llm,  # type: ignore[arg-type]
+        sandbox=sandbox,  # type: ignore[arg-type]
+        retriever=retriever,  # type: ignore[arg-type]
+        event_bus=FakeEventBus(),
+        clock=FixedClock(datetime.now(UTC)),
+        defaults=make_agent_defaults(),
+        registry=PromptRegistry(),
+        file_refs=[],
+        mounts=[],
+        cycle_detector=CycleDetector(max_repeats=3),
+    )
+
+
 async def test_happy_path_succeeds_in_one_round() -> None:
     sc = happy_path()
     out = await run_precise(sc.state, _deps(sc))
@@ -61,3 +76,39 @@ async def test_backtrack_path_records_one_abandoned_branch() -> None:
     assert out.abandoned_branches[0].from_index == 1
     assert any(s.superseded for s in out.plan)
     assert "1250" in (out.answer or "")
+
+
+async def test_multi_debug_retry_recovers_within_budget() -> None:
+    """Two consecutive crashes, each fixed by the debugger, then success — the
+    flattened debug->execute self-loop must match the old nested while loop."""
+    from vera_core.agents._types import (
+        CoderOutput,
+        FinalizerOutput,
+        PlannerOutput,
+        PlanStepDraft,
+    )
+    from vera_core.models.verdict import Verdict
+    from vera_testing.factories.domain import make_run_state
+    from vera_testing.fakes import FakeLLM, FakeRetriever, FakeSandbox
+
+    llm = FakeLLM()
+    llm.on("planner", PlannerOutput(steps=[PlanStepDraft(text="Load and sum payments.csv")]))
+    llm.on("coder", CoderOutput(source="import pandas as pd  # v1 (broken)"))
+    llm.on("debugger", CoderOutput(source="import pandas as pd  # v2 (still broken)"))
+    llm.on("debugger", CoderOutput(source="import pandas as pd  # v3 (fixed)"))
+    llm.on("verifier", Verdict(sufficient=True, reason="total is correct after two fixes"))
+    llm.on("finalizer", FinalizerOutput(answer="Total is $1250.00."))
+
+    sandbox = FakeSandbox()
+    sandbox.push_failure(stderr="KeyError: 'amt'")
+    sandbox.push_failure(stderr="KeyError: 'amount_'")
+    sandbox.push_success(stdout="TOTAL: 1250.00")
+
+    state = make_run_state(query="total payments?")
+    out = await run_precise(state, _deps_for(llm, sandbox, FakeRetriever()))
+
+    assert out.status is RunStatus.SUCCEEDED
+    assert "1250" in (out.answer or "")
+    assert sandbox.call_count == 3  # initial + 2 debug retries
+    assert out.round == 1  # exactly one verify
+    assert len(out.verdicts) == 1

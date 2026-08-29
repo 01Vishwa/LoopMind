@@ -20,6 +20,7 @@ async def code(state: RunState, deps: LoopDeps) -> RunState:
             plan=[s.text for s in state.active_plan],
             last_stdout=last.stdout if last else None,
             last_stderr=last.stderr if last else None,
+            prior_script=state.script.source if state.script else None,
         ),
     )
     account(state, response)

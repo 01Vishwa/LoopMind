@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from vera_core.loop.edges import (
+    after_execute,
     debug_outcome,
     execution_outcome,
     route_outcome,
@@ -39,8 +40,16 @@ def test_execution_outcome_crash() -> None:
 def test_execution_outcome_budget() -> None:
     st = _state()
     st.round = st.budget.max_rounds
-    st.observations.append(make_observation(exit_code=0))
+    st.observations.append(make_observation(exit_code=1, stderr="crash"))
     assert execution_outcome(st) == "budget"
+
+
+def test_execution_outcome_ok_even_at_budget() -> None:
+    """A successful observation is never thrown away for budget — let verify run."""
+    st = _state()
+    st.round = st.budget.max_rounds
+    st.observations.append(make_observation(exit_code=0))
+    assert execution_outcome(st) == "ok"
 
 
 def test_verify_outcome_sufficient() -> None:
@@ -101,3 +110,30 @@ def test_debug_outcome_retry() -> None:
     st = _state()
     st.observations.append(make_observation(exit_code=1, stderr="still broken"))
     assert debug_outcome(st) == "retry"
+
+
+def test_after_execute_ok_goes_to_verify() -> None:
+    st = _state()
+    st.observations.append(make_observation(exit_code=0))
+    assert after_execute(st) == "verify"
+
+
+def test_after_execute_crash_with_budget_left_goes_to_debug() -> None:
+    st = _state()
+    st.debug_attempts = 0
+    st.observations.append(make_observation(exit_code=1, stderr="boom"))
+    assert after_execute(st) == "debug"
+
+
+def test_after_execute_crash_at_debug_cap_is_degraded() -> None:
+    st = _state()
+    st.debug_attempts = st.budget.max_debug_attempts
+    st.observations.append(make_observation(exit_code=1, stderr="boom"))
+    assert after_execute(st) == "degraded"
+
+
+def test_after_execute_budget_exhausted_is_degraded() -> None:
+    st = _state()
+    st.round = st.budget.max_rounds
+    st.observations.append(make_observation(exit_code=1, stderr="boom"))
+    assert after_execute(st) == "degraded"

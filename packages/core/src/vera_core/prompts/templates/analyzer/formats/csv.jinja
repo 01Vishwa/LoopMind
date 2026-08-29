@@ -1,0 +1,4 @@
+## csv specifics
+Use `pd.read_csv("{{ filename }}")`. Report `df.shape[0]` as row_count, iterate
+`df.dtypes` for the Fields block, and `df.head(5).to_dict(orient="records")` for
+Sample Rows. Flag columns whose dtype is object but values look numeric/boolean.

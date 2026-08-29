@@ -7,12 +7,19 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from jinja2 import Environment, StrictUndefined
+from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
 _DEFAULT_DIR = Path(__file__).parent / "templates"
 _VERSION_RE = re.compile(r"^v(\d+)\.jinja$")
+# The loader resolves ``{% include %}`` (e.g. the analyzer's per-kind format
+# sub-templates) against the bundled templates directory. Custom-dir registries
+# still resolve includes here — only the bundled templates use includes today.
 _ENV = Environment(
-    undefined=StrictUndefined, trim_blocks=True, lstrip_blocks=True, autoescape=False
+    loader=FileSystemLoader(str(_DEFAULT_DIR)),
+    undefined=StrictUndefined,
+    trim_blocks=True,
+    lstrip_blocks=True,
+    autoescape=False,
 )
 
 
