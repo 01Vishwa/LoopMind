@@ -5,9 +5,9 @@ from supabase._async.client import AsyncClient
 import uuid
 from typing import List
 
-from ...dependencies.auth import require_authenticated_user
+from ...dependencies.auth import get_current_user
 from ...dependencies.db import get_supabase_client, get_db_session
-from ...schemas.auth import Principal
+from ...dependencies.auth import Principal
 from ...schemas.file import FileResponse
 from ...services.upload_service import upload_file as upload_file_service
 from vera_db.repositories.file_repository import FileRepository
@@ -19,7 +19,7 @@ router = APIRouter(tags=["Files"])
 async def upload_file(
     workspace_id: str,
     file: UploadFile = File(...),
-    principal: Principal = Depends(require_authenticated_user),
+    principal: Principal = Depends(get_current_user),
     supabase: AsyncClient = Depends(get_supabase_client),
     session: AsyncSession = Depends(get_db_session)
 ):
@@ -31,7 +31,7 @@ async def upload_file(
 @router.get("/workspaces/{workspace_id}/files", response_model=List[FileResponse])
 async def list_files(
     workspace_id: str,
-    principal: Principal = Depends(require_authenticated_user),
+    principal: Principal = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session)
 ):
     """
@@ -62,7 +62,7 @@ async def list_files(
 @router.get("/files/{file_id}", response_model=FileResponse)
 async def get_file(
     file_id: str,
-    principal: Principal = Depends(require_authenticated_user),
+    principal: Principal = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session)
 ):
     """
@@ -89,7 +89,7 @@ async def get_file(
 @router.get("/files/{file_id}/download")
 async def download_file(
     file_id: str,
-    principal: Principal = Depends(require_authenticated_user),
+    principal: Principal = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session),
     supabase: AsyncClient = Depends(get_supabase_client)
 ):
@@ -112,7 +112,7 @@ async def download_file(
 @router.delete("/files/{file_id}", status_code=204)
 async def delete_file(
     file_id: str,
-    principal: Principal = Depends(require_authenticated_user),
+    principal: Principal = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session),
     supabase: AsyncClient = Depends(get_supabase_client)
 ):

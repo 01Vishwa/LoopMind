@@ -1,0 +1,4 @@
+## xlsx specifics
+Use `openpyxl.load_workbook("{{ filename }}", read_only=True)`. Emit every sheet
+name in the sheet_names line. For each sheet, detect the header row and report
+its columns and inferred dtypes in the Fields block, prefixed with the sheet name.

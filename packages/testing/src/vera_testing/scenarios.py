@@ -19,9 +19,12 @@ from vera_core.agents._types import (
     FinalizerOutput,
     PlannerOutput,
     PlanStepDraft,
+    ReportOutput,
+    SubQuestionDraft,
+    SubQuestionList,
 )
 from vera_core.models.routing import RouterAction, RouterDecision
-from vera_core.models.run import RunState, RunStatus
+from vera_core.models.run import RunMode, RunState, RunStatus
 from vera_core.models.verdict import Verdict
 
 from vera_testing.factories.domain import make_file_description, make_run_state
@@ -185,4 +188,48 @@ def backtrack() -> Scenario:
     return Scenario(llm, sandbox, _retriever(), make_run_state(), RunStatus.SUCCEEDED, "1250", 3)
 
 
-__all__ = ["Scenario", "backtrack", "happy_path", "multi_round"]
+def _research_child_turn(llm: FakeLLM, sandbox: FakeSandbox, answer: str) -> None:
+    llm.on("planner", PlannerOutput(steps=[PlanStepDraft(text="Load and compute")]))
+    llm.on("coder", CoderOutput(source="print('x')"))
+    sandbox.push_success(stdout=_STDOUT)
+    llm.on("verifier", Verdict(sufficient=True, reason="the number is correct here"))
+    llm.on("finalizer", FinalizerOutput(answer=answer))
+
+
+def research_scenario() -> Scenario:
+    """DS-STAR+: 2 initial sub-questions + 1 gap round -> a cited report."""
+    llm, sandbox = FakeLLM(), FakeSandbox()
+    llm.on(
+        "subquestion_generator",
+        SubQuestionList(
+            questions=[
+                SubQuestionDraft(index=1, text="Total volume by merchant?"),
+                SubQuestionDraft(index=2, text="Chargeback rate by month?"),
+            ]
+        ),
+    )
+    _research_child_turn(llm, sandbox, "Volume is 1,000.")
+    _research_child_turn(llm, sandbox, "Rate is 2.5%.")
+    llm.on(
+        "report_writer",
+        ReportOutput(markdown="# Draft report\nVolume 1,000 [SQ-1]; rate 2.5% [SQ-2]."),
+    )
+    llm.on(
+        "subquestion_generator",
+        SubQuestionList(questions=[SubQuestionDraft(index=3, text="Top merchant by loss?")]),
+    )
+    _research_child_turn(llm, sandbox, "Merchant Acme, 300 in losses.")
+    llm.on(
+        "report_writer",
+        ReportOutput(
+            markdown="# Final report\n\n## Executive Summary\nVolume 1,000 [SQ-1]; "
+            "rate 2.5% [SQ-2]; top merchant Acme [SQ-3]."
+        ),
+    )
+
+    state = make_run_state()
+    state.mode = RunMode.RESEARCH
+    return Scenario(llm, sandbox, _retriever(), state, RunStatus.SUCCEEDED, "[SQ-", 3)
+
+
+__all__ = ["Scenario", "backtrack", "happy_path", "multi_round", "research_scenario"]

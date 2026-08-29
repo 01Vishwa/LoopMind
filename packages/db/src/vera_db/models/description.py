@@ -9,7 +9,7 @@ from typing import Any
 from sqlalchemy import ForeignKey, Integer, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
-from pgvector.sqlalchemy import HalfVector
+from pgvector.sqlalchemy import HALFVEC
 
 from vera_db.models.base import Base
 
@@ -34,7 +34,7 @@ class FileDescription(Base):
     analyzer_script: Mapped[str | None] = mapped_column(Text)
     analyzer_model: Mapped[str] = mapped_column(Text, nullable=False)
     prompt_version: Mapped[str] = mapped_column(Text, nullable=False)
-    embedding: Mapped[Any | None] = mapped_column(HalfVector(3072))
+    embedding: Mapped[Any | None] = mapped_column(HALFVEC(3072))
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
 
 __all__ = ["FileDescription"]

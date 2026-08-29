@@ -17,6 +17,7 @@ class CoderPayload:
     plan: list[str]
     last_stdout: str | None
     last_stderr: str | None
+    prior_script: str | None = None
 
 
 class CoderAgent:
@@ -35,6 +36,7 @@ class CoderAgent:
                 "plan": payload.plan,
                 "last_stdout": payload.last_stdout,
                 "last_stderr": payload.last_stderr,
+                "prior_script": payload.prior_script,
             },
             schema=CoderOutput,
         )

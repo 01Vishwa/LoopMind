@@ -5,7 +5,7 @@ import uuid
 
 from vera_db.repositories.workspace_repository import WorkspaceRepository
 from vera_db.repositories.file_repository import FileRepository
-from vera_api.schemas.auth import Principal
+from vera_api.dependencies.auth import Principal
 from vera_api.schemas.workspace import (
     WorkspaceResponse,
     WorkspaceDetailResponse,

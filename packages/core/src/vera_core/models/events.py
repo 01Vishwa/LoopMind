@@ -39,6 +39,7 @@ class FileAnalyzedEvent(BaseEvent):
     file_id: str
     filename: str
     row_count: int | None = None
+    partial: bool = False
 
 
 class PlanUpdatedEvent(BaseEvent):
@@ -99,6 +100,28 @@ class RunCancelledEvent(BaseEvent):
     type: Literal["run.cancelled"] = "run.cancelled"
 
 
+# ── DS-STAR+ research events ──────────────────────────────────────────────────
+
+
+class SubQuestionsGeneratedEvent(BaseEvent):
+    type: Literal["research.subquestions"] = "research.subquestions"
+    count: int
+    gap_round: int
+
+
+class SubQuestionResolvedEvent(BaseEvent):
+    type: Literal["research.subquestion_resolved"] = "research.subquestion_resolved"
+    idx: int
+    status: str
+    child_run_id: str | None = None
+
+
+class ReportGeneratedEvent(BaseEvent):
+    type: Literal["research.report"] = "research.report"
+    sub_question_count: int
+    gap_rounds: int
+
+
 # Discriminated union — used for type-safe deserialization
 RunEvent = Annotated[
     RunStartedEvent
@@ -113,7 +136,10 @@ RunEvent = Annotated[
     | RouteDecisionEvent
     | RunFinishedEvent
     | RunFailedEvent
-    | RunCancelledEvent,
+    | RunCancelledEvent
+    | SubQuestionsGeneratedEvent
+    | SubQuestionResolvedEvent
+    | ReportGeneratedEvent,
     Field(discriminator="type"),
 ]
 
@@ -133,4 +159,7 @@ __all__ = [
     "RunFinishedEvent",
     "RunFailedEvent",
     "RunCancelledEvent",
+    "SubQuestionsGeneratedEvent",
+    "SubQuestionResolvedEvent",
+    "ReportGeneratedEvent",
 ]

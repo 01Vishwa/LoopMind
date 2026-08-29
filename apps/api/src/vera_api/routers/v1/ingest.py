@@ -3,9 +3,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from supabase._async.client import AsyncClient
 import uuid
 
-from ...dependencies.auth import require_authenticated_user
+from ...dependencies.auth import get_current_user
 from ...dependencies.db import get_supabase_client, get_db_session, _get_sessionmaker
-from ...schemas.auth import Principal
+from ...dependencies.auth import Principal
 from ...schemas.ingest import IngestResponse, IngestStatusResponse
 from ...services import ingest_service
 
@@ -15,7 +15,7 @@ router = APIRouter(tags=["Ingestion"])
 async def trigger_ingestion(
     workspace_id: str,
     background_tasks: BackgroundTasks,
-    principal: Principal = Depends(require_authenticated_user),
+    principal: Principal = Depends(get_current_user),
     supabase: AsyncClient = Depends(get_supabase_client),
     session: AsyncSession = Depends(get_db_session)
 ):
@@ -40,7 +40,7 @@ async def trigger_ingestion(
 @router.get("/workspaces/{workspace_id}/ingest/status", response_model=IngestStatusResponse)
 async def get_ingestion_status(
     workspace_id: str,
-    principal: Principal = Depends(require_authenticated_user)
+    principal: Principal = Depends(get_current_user)
 ):
     """
     Get the current ingestion progress for a workspace.

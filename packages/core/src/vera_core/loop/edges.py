@@ -45,4 +45,26 @@ def debug_outcome(state: RunState) -> Literal["fixed", "retry", "max_retries"]:
     return "fixed" if obs is not None and obs.succeeded else "retry"
 
 
-__all__ = ["debug_outcome", "execution_outcome", "route_outcome", "verify_outcome"]
+def after_execute(state: RunState) -> Literal["verify", "debug", "degraded"]:
+    """Compose execution + debug-budget outcomes into the post-``execute`` route.
+
+    Reproduces the old ``while`` loop's debug sub-loop: a crash routes to
+    ``debug`` while the debug budget has room, and to a degraded finish once it
+    does not. ``debug`` then routes unconditionally back to ``execute`` (see
+    ``runner._build_graph``), so the last permitted fix still gets a run.
+    """
+    outcome = execution_outcome(state)
+    if outcome == "ok":
+        return "verify"
+    if outcome == "budget":
+        return "degraded"
+    return "degraded" if debug_outcome(state) == "max_retries" else "debug"
+
+
+__all__ = [
+    "after_execute",
+    "debug_outcome",
+    "execution_outcome",
+    "route_outcome",
+    "verify_outcome",
+]

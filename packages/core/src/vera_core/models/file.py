@@ -58,6 +58,7 @@ class FileDescription(BaseModel):
     sheet_names: list[str] | None = None
     sample_rows: list[dict[str, Any]] | None = None
     generated_by_script_sha: str = ""
+    partial: bool = False  # True when built by the sample-only fallback (analyzer script failed)
     analyzer_model: str = ""
     prompt_version: str = "v1"
     # embedding excluded from default serialisation; loaded separately

@@ -12,7 +12,7 @@ from supabase._async.client import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from vera_db.repositories.file_repository import FileRepository
-from vera_api.schemas.auth import Principal
+from vera_api.dependencies.auth import Principal
 from vera_api.schemas.file import FileResponse
 
 # --- Constants & Rules ---

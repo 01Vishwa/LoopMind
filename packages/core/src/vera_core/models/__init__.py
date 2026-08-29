@@ -20,6 +20,7 @@ from vera_core.models.provider import (
     ProviderKind,
     ValidationResult,
 )
+from vera_core.models.report import Citation, Report, SubQuestion, SubQuestionStatus
 from vera_core.models.run import (
     ArtifactRef,
     CodeArtifact,
@@ -39,6 +40,7 @@ __all__ = [
     "AgentDefaults",
     "AgentTier",
     "ArtifactRef",
+    "Citation",
     "CodeArtifact",
     "ConnectionStatus",
     "FileDescription",
@@ -52,6 +54,7 @@ __all__ = [
     "ProviderConnection",
     "ProviderConnectionId",
     "ProviderKind",
+    "Report",
     "Role",
     "RouterAction",
     "RouterDecision",
@@ -62,6 +65,8 @@ __all__ = [
     "RunState",
     "RunStatus",
     "SchemaField",
+    "SubQuestion",
+    "SubQuestionStatus",
     "Tenant",
     "TenantId",
     "TenantPlan",

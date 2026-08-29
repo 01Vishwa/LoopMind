@@ -53,3 +53,23 @@ def test_run_backtrack_scenario(tmp_path):
     assert "(1 backtracked)" in r.output
     assert "Answer:" in r.output
     assert "1250" in r.output
+
+
+def test_run_research_mode_prints_report(tmp_path):
+    r = runner.invoke(
+        app,
+        [
+            "run",
+            "--workspace",
+            "fixtures/payments",
+            "--query",
+            "Analyse chargeback exposure",
+            "--fake-llm",
+            "--mode",
+            "research",
+        ],
+    )
+    assert r.exit_code == 0, r.output
+    assert "Sub-questions: 3" in r.output
+    assert "Gap rounds: 1" in r.output
+    assert "[SQ-" in r.output

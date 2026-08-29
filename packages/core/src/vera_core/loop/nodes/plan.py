@@ -37,6 +37,7 @@ def _is_prefix(prefix: list[str], drafts: list[str]) -> bool:
 
 async def plan(state: RunState, deps: LoopDeps) -> RunState:
     abandoned = [_constraint(b) for b in state.abandoned_branches]
+    last = state.last_observation
     output, response = await planner.run(
         build_context(state, deps),
         PlannerPayload(
@@ -44,6 +45,7 @@ async def plan(state: RunState, deps: LoopDeps) -> RunState:
             descriptions=[d.summary_text for d in state.descriptions],
             existing_steps=[s.text for s in state.active_plan],
             abandoned=abandoned,
+            last_observation=last.stdout if last else None,
         ),
     )
     account(state, response)

@@ -11,7 +11,7 @@ from dataclasses import dataclass
 
 from fastapi import Depends, HTTPException, Header
 
-from vera_api.dependencies.db import get_supabase_client
+from vera_api.dependencies.supabase import get_supabase_client
 from supabase._async.client import AsyncClient
 
 

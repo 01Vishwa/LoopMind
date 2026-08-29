@@ -5,9 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from vera_core.agents._shared import run_structured_agent
+from vera_core.agents._types import AnalyzerScriptOutput
 from vera_core.agents.base import AgentContext
 from vera_core.models.agent_config import AgentTier
-from vera_core.models.file import FileDescription
 from vera_core.ports.llm import LLMResponse
 
 
@@ -25,7 +25,7 @@ class AnalyzerAgent:
 
     async def run(
         self, ctx: AgentContext, payload: AnalyzePayload
-    ) -> tuple[FileDescription, LLMResponse]:
+    ) -> tuple[AnalyzerScriptOutput, LLMResponse]:
         return await run_structured_agent(
             ctx,
             agent=self.name,
@@ -36,7 +36,7 @@ class AnalyzerAgent:
                 "kind": payload.kind,
                 "sample": payload.sample,
             },
-            schema=FileDescription,
+            schema=AnalyzerScriptOutput,
         )
 
 
